@@ -3,7 +3,6 @@ package com.back.domain.post.post.controller;
 import com.back.domain.post.post.dto.PostDto;
 import com.back.domain.post.post.entity.Post;               // [005 추가]
 import com.back.domain.post.post.service.PostService;
-import com.back.global.exception.ServiceException;         // [005 추가]
 import lombok.RequiredArgsConstructor;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -39,14 +38,13 @@ public class ApiV1PostController {
     // [005 추가] 글 단건조회: GET /api/v1/posts/{id}
     // {id} : 주소의 이 자리에 오는 값을 @PathVariable 로 받는다 → /api/v1/posts/1 이면 id = 1
     // 성공: PostDto 를 그대로 응답 (200)
-    // 실패: ServiceException 을 던진다 → GlobalExceptionHandler 가 404 + RsData 로 응답
+    // [006 수정] 실패 처리는 컨트롤러에서 하지 않는다
+    //   .get() : Optional 이 비어 있으면 NoSuchElementException 이 저절로 던져진다
+    //   → GlobalExceptionHandler 가 받아서 404 + RsData 로 응답 (강의 48강)
     @GetMapping("/{id}")
     @Transactional(readOnly = true)
     public PostDto getItem(@PathVariable long id) {
-        Post post = postService.findById(id) // Optional<Post>
-                .orElseThrow(                // 비어 있으면 아래 예외를 던지고, 있으면 Post 를 꺼낸다
-                        () -> new ServiceException("404-1", "%d번 글은 존재하지 않습니다.".formatted(id))
-                );
+        Post post = postService.findById(id).get();
 
         return new PostDto(post);
     }

@@ -118,7 +118,7 @@ public class ApiV1PostControllerTest {
                 .andExpect(handler().methodName("getItem"))
                 .andExpect(status().isNotFound())                              // 404
                 .andExpect(jsonPath("$.resultCode").value("404-1"))
-                .andExpect(jsonPath("$.msg").value("1000번 글은 존재하지 않습니다."))
+                .andExpect(jsonPath("$.msg").value("해당 데이터가 존재하지 않습니다.")) // [006 수정] 강의 48강 공통 메시지
                 .andExpect(jsonPath("$.data").value(nullValue()));             // 키는 있고 값은 null
     }
 }

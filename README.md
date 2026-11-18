@@ -3,7 +3,7 @@
 글·댓글 게시판 REST API의 **CRUD(다건조회·단건조회·작성·수정·삭제)** 를 TDD로 만드는 실습입니다.
 **기능 하나 = 커밋 하나**로 나누고, 커밋마다 `001`, `002` … 태그를 달아 나중에 그 시점의 코드를 바로 꺼내 볼 수 있게 했습니다.
 
-- 참고: [slog.gg/p/14172](https://www.slog.gg/p/14172/raw) 2부(33강 ~ 56강) REST API by TDD
+- 참고: [slog.gg/p/14172](https://www.slog.gg/p/14172/raw) 1부(1강 ~ 32강) REST API, 2부(33강 ~ 56강) REST API by TDD
 - 기술: Java 25, Spring Boot 4.1.2, Spring Data JPA, H2, Lombok, JUnit 5 + MockMvc
 - 용어: [GLOSSARY.md](GLOSSARY.md)
 - 테스트 실행: `./gradlew test` (리포트: `build/reports/tests/test/index.html`)
@@ -20,21 +20,25 @@
 
 ## 진행 상황
 
-| 태그 | 기능 | 상태 |
-|---|---|---|
-| `001` | 빈 Spring Boot 프로젝트 + 용어집 + README 뼈대 | ✅ 완료 |
-| `002` | JPA·H2 설정 + `Post` 엔티티 + 샘플 글 3개 | ✅ 완료 |
-| `003` | `PostComment` 엔티티 + 샘플 댓글 5개 | ✅ 완료 |
-| `004` | 글 다건조회 | ✅ 완료 |
-| `005` | 글 단건조회 | ✅ 완료 |
-| `006` | 글 작성 (입력값 검증 포함) | ⏳ |
-| `007` | 글 수정 (입력값 검증 포함) | ⏳ |
-| `008` | 글 삭제 (댓글도 함께 삭제) | ⏳ |
-| `009` | 댓글 다건조회 | ⏳ |
-| `010` | 댓글 단건조회 | ⏳ |
-| `011` | 댓글 작성 (입력값 검증 포함) | ⏳ |
-| `012` | 댓글 수정 (입력값 검증 포함) | ⏳ |
-| `013` | 댓글 삭제 + 최종 결과 정리 | ⏳ |
+> **006부터 강의 순서에 맞춰 계획을 바꿨다.** 001~005는 강의 4~9강과 내용이 같아 그대로 두고,
+> 이후는 강의 목차 순서(댓글 조회 → 삭제 → 작성 → 수정)를 따른다. 단, 모든 커밋에서 테스트를 먼저 쓰는 방식은 유지한다.
+
+| 태그 | 기능 | 강의 | 상태 |
+|---|---|---|---|
+| `001` | 빈 Spring Boot 프로젝트 + 용어집 + README 뼈대 | 1강 | ✅ 완료 |
+| `002` | JPA·H2 설정 + `Post` 엔티티 + 샘플 글 3개 | 3강 | ✅ 완료 |
+| `003` | `PostComment` 엔티티 + 샘플 댓글 5개 | 3강 | ✅ 완료 |
+| `004` | 글 다건조회 | 4강, 8~9강, 45강 | ✅ 완료 |
+| `005` | 글 단건조회 | 5강, 44강 | ✅ 완료 |
+| `006` | 404 처리 리팩터링: 컨트롤러는 `.get()` 만, 예외 처리기가 `NoSuchElementException` 처리 | 48~49강 | ✅ 완료 |
+| `007` | 댓글 다건조회, 단건조회 | 10강, 54강 | ⏳ |
+| `008` | 댓글 삭제 | 11~12강 | ⏳ |
+| `009` | 글 삭제 (댓글도 함께 삭제) | 16강, 42강 | ⏳ |
+| `010` | 글 작성 + 입력값 검증(400) | 22~24강, 50~52강 | ⏳ |
+| `011` | `ResponseAspect`: `RsData` 의 `resultCode` 로 HTTP 상태코드 자동 설정 | 27~28강 | ⏳ |
+| `012` | 글 수정 (입력값 검증 포함) | 31강, 36강 | ⏳ |
+| `013` | 댓글 수정 (입력값 검증 포함) | 32강, 55강 | ⏳ |
+| `014` | 댓글 작성 + 최종 결과 정리 | 56강 | ⏳ |
 
 ## 만들 API
 
@@ -42,14 +46,14 @@
 |---|---|---|---|---|
 | GET | `/api/v1/posts` | 글 다건조회 (최신순) | 200, 글 배열 | `004` |
 | GET | `/api/v1/posts/{id}` | 글 단건조회 | 200, 글 | `005` |
-| POST | `/api/v1/posts` | 글 작성 | 201, `RsData` | `006` |
-| PUT | `/api/v1/posts/{id}` | 글 수정 | 200, `RsData` | `007` |
-| DELETE | `/api/v1/posts/{id}` | 글 삭제 | 200, `RsData` | `008` |
-| GET | `/api/v1/posts/{postId}/comments` | 댓글 다건조회 (작성순) | 200, 댓글 배열 | `009` |
-| GET | `/api/v1/posts/{postId}/comments/{id}` | 댓글 단건조회 | 200, 댓글 | `010` |
-| POST | `/api/v1/posts/{postId}/comments` | 댓글 작성 | 201, `RsData` | `011` |
-| PUT | `/api/v1/posts/{postId}/comments/{id}` | 댓글 수정 | 200, `RsData` | `012` |
-| DELETE | `/api/v1/posts/{postId}/comments/{id}` | 댓글 삭제 | 200, `RsData` | `013` |
+| GET | `/api/v1/posts/{postId}/comments` | 댓글 다건조회 (작성순) | 200, 댓글 배열 | `007` |
+| GET | `/api/v1/posts/{postId}/comments/{id}` | 댓글 단건조회 | 200, 댓글 | `007` |
+| DELETE | `/api/v1/posts/{postId}/comments/{id}` | 댓글 삭제 | 200, `RsData` | `008` |
+| DELETE | `/api/v1/posts/{id}` | 글 삭제 | 200, `RsData` | `009` |
+| POST | `/api/v1/posts` | 글 작성 | 201, `RsData` | `010` |
+| PUT | `/api/v1/posts/{id}` | 글 수정 | 200, `RsData` | `012` |
+| PUT | `/api/v1/posts/{postId}/comments/{id}` | 댓글 수정 | 200, `RsData` | `013` |
+| POST | `/api/v1/posts/{postId}/comments` | 댓글 작성 | 201, `RsData` | `014` |
 
 ### 응답 규칙
 - **조회 성공**: 데이터(DTO)를 그대로 응답한다.
@@ -62,7 +66,7 @@
 | 수정 성공 | 200 | `200-1` | `1번 글이 수정되었습니다.` |
 | 삭제 성공 | 200 | `200-1` | `1번 글이 삭제되었습니다.` |
 | 입력값 오류 | 400 | `400-1` | `title-Size-size must be between 2 and 100` |
-| 없는 대상 | 404 | `404-1` | `1000번 글은 존재하지 않습니다.` |
+| 없는 대상 | 404 | `404-1` | `해당 데이터가 존재하지 않습니다.` (006부터, 강의 48강) |
 
 ### 입력값 규칙
 | 항목 | 규칙 |
@@ -373,3 +377,63 @@
 브라우저 `http://localhost:8080/api/v1/posts/1000` — 404, `RsData` 형식 (`statusCode` 칸은 나오지 않음)
 
 ![005 브라우저 404](docs/images/005-browser-404.png)
+
+---
+
+## 006 - 404 처리 리팩터링: 컨트롤러는 예외 처리를 하지 않는다 (강의 48~49강)
+
+### 왜 바꿨나
+005에서는 컨트롤러가 `orElseThrow(() -> new ServiceException("404-1", "1000번 글은 ..."))` 로 실패 응답을 직접 준비했다.
+강의(48강)는 컨트롤러가 `.get()` 만 부르고, 데이터가 없을 때 저절로 나는 `NoSuchElementException` 을 **전역 예외 처리기가 받아서** 404 로 바꾼다.
+컨트롤러에는 "성공 흐름"만 남고, "없을 때 어떻게 응답하나"는 한곳(`GlobalExceptionHandler`)에서만 정한다.
+이 커밋부터 진행 순서도 강의 목차에 맞췄다(위 "진행 상황" 표 참고).
+
+### 작업 내용
+
+| 파일 | 변경 | 역할 |
+|---|---|---|
+| `ApiV1PostControllerTest.java` | 수정 | `t4` 의 기대 메시지를 `해당 데이터가 존재하지 않습니다.` 로 **먼저** 변경 |
+| `ApiV1PostController.java` | 수정 | `getItem()`: `orElseThrow(...)` → `.get()`. 예외 관련 코드 제거 |
+| `GlobalExceptionHandler.java` | 수정 | 처리 대상 `ServiceException` → `NoSuchElementException`, 공통 메시지 |
+| `global/exception/ServiceException.java` | 삭제 | 더 이상 쓰는 곳이 없음 |
+| `README.md` | 수정 | 006 ~ 014 계획을 강의 순서로 변경, 404 메시지 규칙 변경 |
+
+### 봐야 할 부분 (읽는 순서)
+
+1. **[`ApiV1PostControllerTest.java`](src/test/java/com/back/domain/post/post/controller/ApiV1PostControllerTest.java) `t4` 의 `$.msg` 줄** — 바뀐 것은 이 한 줄뿐. **요구사항이 바뀌면 테스트부터 고친다**(강의 40강).
+2. **[`ApiV1PostController.java`](src/main/java/com/back/domain/post/post/controller/ApiV1PostController.java) `getItem()`** — 005 와 비교해 보기: `git diff 005 006 -- src/main`
+3. **[`GlobalExceptionHandler.java`](src/main/java/com/back/global/globalExceptionHandler/GlobalExceptionHandler.java)** — `@ExceptionHandler(NoSuchElementException.class)` 로 받는 예외가 바뀐 부분.
+
+### 핵심 포인트
+
+- **`Optional.get()`**: 값이 있으면 꺼내고, **비어 있으면 `NoSuchElementException` 을 던진다.** 그래서 컨트롤러가 `if` 나 `orElseThrow` 를 쓰지 않아도 "없음"이 예외로 표현된다.
+- **예외는 위로 올라간다**: `getItem()` 안에서 난 예외를 아무도 잡지 않으면 스프링 MVC 까지 올라가고, 스프링은 `@RestControllerAdvice` 에서 그 예외 타입을 처리하는 `@ExceptionHandler` 메서드를 찾아 실행한다.
+- **공통 메시지의 대가**: 예외 처리기는 "몇 번 무엇이" 없었는지 모른다. 그래서 메시지가 `해당 데이터가 존재하지 않습니다.` 로 일반적이 된다. 대신 앞으로 만들 댓글 조회·삭제·수정의 "없음"도 **컨트롤러 코드 추가 없이** 같은 404 응답을 받는다.
+- **리팩터링과 테스트**: 성공 응답(`t1` ~ `t3`)은 바뀌지 않았고 그대로 통과한다. 테스트가 있어서 "다른 기능을 망가뜨리지 않았다"를 바로 확인할 수 있다(강의 37강).
+
+### TDD 과정
+
+**RED** — `t4` 의 기대 메시지만 먼저 바꾸고 실행. 1건 실패.
+`JSON path "$.msg" expected:<해당 데이터가 존재하지 않습니다.> but was:<1000번 글은 존재하지 않습니다.>`
+
+![006 RED](docs/images/006-red.png)
+
+**GREEN** — 컨트롤러를 `.get()` 으로, 예외 처리기를 `NoSuchElementException` 으로 바꾼 뒤 통과.
+
+![006 GREEN](docs/images/006-green.png)
+
+### 테스트
+
+| 테스트 | 검증 내용 |
+|---|---|
+| `ApiV1PostControllerTest.t4` (수정) | `GET /api/v1/posts/1000` → 404, `404-1`, `해당 데이터가 존재하지 않습니다.`, `data` = `null` |
+
+### 결과 스크린샷
+
+전체 결과 — 11건 실행, 실패 0, 성공률 100%
+
+![006 테스트 요약](docs/images/006-green-summary.png)
+
+브라우저 `http://localhost:8080/api/v1/posts/1000`
+
+![006 브라우저 404](docs/images/006-browser-404.png)
