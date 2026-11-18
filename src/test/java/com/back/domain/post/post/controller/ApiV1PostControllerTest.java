@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.nullValue; // [005 추가]
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
@@ -75,5 +76,49 @@ public class ApiV1PostControllerTest {
                     .andExpect(jsonPath("$[%d].content".formatted(i)).value(post.getContent()))
                     .andExpect(jsonPath("$[%d].comments".formatted(i)).doesNotExist()); // 댓글은 댓글 API(009)로 따로 조회
         }
+    }
+
+    // ---------- [005 추가] ----------
+
+    @Test
+    @DisplayName("글 단건조회 - GET /api/v1/posts/1 요청하면 200 과 1번 글이 응답된다")
+    void t3() throws Exception {
+        // ① 요청 보내기
+        ResultActions resultActions = mvc
+                .perform(get("/api/v1/posts/1"))
+                .andDo(print());
+
+        // 비교 기준: DB의 1번 글
+        Post post = postService.findAll().getFirst();
+
+        // ② 응답 검증: 배열이 아니라 객체 하나({...})라서 $[0].id 가 아니라 $.id 로 꺼낸다
+        resultActions
+                .andExpect(handler().handlerType(ApiV1PostController.class))
+                .andExpect(handler().methodName("getItem"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.createDate").value(startsWith(post.getCreateDate().toString().substring(0, 19))))
+                .andExpect(jsonPath("$.modifyDate").value(startsWith(post.getModifyDate().toString().substring(0, 19))))
+                .andExpect(jsonPath("$.title").value("제목 1"))
+                .andExpect(jsonPath("$.content").value("내용 1"))
+                .andExpect(jsonPath("$.comments").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("글 단건조회 - 없는 글(1000번)을 요청하면 404 와 RsData 형식의 실패 응답이 온다")
+    void t4() throws Exception {
+        // ① 요청 보내기
+        ResultActions resultActions = mvc
+                .perform(get("/api/v1/posts/1000"))
+                .andDo(print());
+
+        // ② 응답 검증: 조회 실패는 RsData 로 감싼다 (README 응답 규칙)
+        resultActions
+                .andExpect(handler().handlerType(ApiV1PostController.class))
+                .andExpect(handler().methodName("getItem"))
+                .andExpect(status().isNotFound())                              // 404
+                .andExpect(jsonPath("$.resultCode").value("404-1"))
+                .andExpect(jsonPath("$.msg").value("1000번 글은 존재하지 않습니다."))
+                .andExpect(jsonPath("$.data").value(nullValue()));             // 키는 있고 값은 null
     }
 }

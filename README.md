@@ -26,7 +26,7 @@
 | `002` | JPA·H2 설정 + `Post` 엔티티 + 샘플 글 3개 | ✅ 완료 |
 | `003` | `PostComment` 엔티티 + 샘플 댓글 5개 | ✅ 완료 |
 | `004` | 글 다건조회 | ✅ 완료 |
-| `005` | 글 단건조회 | ⏳ |
+| `005` | 글 단건조회 | ✅ 완료 |
 | `006` | 글 작성 (입력값 검증 포함) | ⏳ |
 | `007` | 글 수정 (입력값 검증 포함) | ⏳ |
 | `008` | 글 삭제 (댓글도 함께 삭제) | ⏳ |
@@ -307,3 +307,69 @@
 앱 실행 후 브라우저에서 `http://localhost:8080/api/v1/posts` 접속 — 3번 글이 맨 위(최신순), `comments` 없음
 
 ![004 브라우저 응답](docs/images/004-browser.png)
+
+---
+
+## 005 - 글 단건조회 `GET /api/v1/posts/{id}` + 404 처리(`RsData`)
+
+### 작업 내용
+
+| 파일 | 변경 | 역할 |
+|---|---|---|
+| `domain/post/post/controller/ApiV1PostController.java` | 수정 | `getItem()` 추가: `GET /api/v1/posts/{id}`. 없으면 `ServiceException` 던짐 |
+| `domain/post/post/service/PostService.java` | 수정 | `findById()` 추가 → `Optional<Post>` |
+| `global/rsData/RsData.java` | 추가 | 결과 응답 상자: `resultCode`, `msg`, `data` |
+| `global/exception/ServiceException.java` | 추가 | "처리할 수 없다"를 알리는 예외. `resultCode` 와 `msg` 를 들고 다닌다 |
+| `global/globalExceptionHandler/GlobalExceptionHandler.java` | 추가 | `ServiceException` 을 받아 HTTP 상태코드 + `RsData` 응답으로 바꾼다 |
+| `ApiV1PostControllerTest.java` | 수정 | 단건조회 성공(`t3`), 없는 글 404(`t4`) 테스트 추가 |
+
+### 봐야 할 부분 (읽는 순서)
+
+1. **[`ApiV1PostControllerTest.java`](src/test/java/com/back/domain/post/post/controller/ApiV1PostControllerTest.java) `t3`, `t4`** — 성공은 `$.id` 처럼 객체를 바로 읽고, 실패는 `$.resultCode`, `$.msg`, `$.data` 를 읽는다. 응답 **모양이 다르다**는 것이 핵심.
+2. **[`ApiV1PostController.java`](src/main/java/com/back/domain/post/post/controller/ApiV1PostController.java) `getItem()`** — `@PathVariable` 로 주소의 숫자를 받고, `orElseThrow()` 로 "없으면 예외" 를 한 줄에 처리.
+3. **[`ServiceException.java`](src/main/java/com/back/global/exception/ServiceException.java)** → **[`GlobalExceptionHandler.java`](src/main/java/com/back/global/globalExceptionHandler/GlobalExceptionHandler.java)** — 던진 예외가 어디서 받아져서 404 응답이 되는지 따라가 보기.
+4. **[`RsData.java`](src/main/java/com/back/global/rsData/RsData.java)** — `"404-1"` 에서 `404` 를 뽑는 `statusCode()` 와, 그게 JSON 에 안 나오게 하는 `@JsonIgnore`.
+
+### 핵심 포인트
+
+- **`@GetMapping("/{id}")` + `@PathVariable long id`**: 주소의 `{id}` 자리에 온 값(`/api/v1/posts/1` → `1`)을 메서드 매개변수로 받는다.
+- **`Optional`**: "있을 수도, 없을 수도 있는 값"을 담는 상자. `findById(1000)` 은 빈 상자를 돌려준다. `orElseThrow(() -> 예외)` 는 "비어 있으면 이 예외를 던지고, 있으면 꺼내 줘".
+- **예외로 흐름 끊기**: 컨트롤러는 실패 응답을 직접 만들지 않는다. `throw` 하면 메서드가 그 자리에서 끝나고, 스프링이 `@RestControllerAdvice` 에서 그 예외를 처리하는 `@ExceptionHandler` 메서드를 찾아 실행한다. 컨트롤러 코드는 "성공 흐름"만 남아 짧아진다.
+- **`ResponseEntity`**: 응답 본문만 돌려주면 상태코드는 항상 200 이다. 404 를 보내려면 `ResponseEntity.status(404).body(...)` 로 상태코드까지 정해야 한다.
+- **`RsData` 의 `resultCode` 형식 `"404-1"`**: 앞은 HTTP 상태코드, 뒤는 같은 상태코드 안에서 상황을 구분하는 번호. `statusCode()` 가 앞부분을 잘라 실제 HTTP 상태코드로 쓴다.
+- **`@JsonIgnore`**: record 는 메서드도 JSON 칸으로 내보낼 수 있다. `statusCode()` 는 내부용이라 JSON 에서 뺀다. (브라우저 캡처에 `statusCode` 칸이 없는 것으로 확인)
+- **성공과 실패의 모양이 다르다**: 성공은 `{"id":1, ...}`, 실패는 `{"resultCode":"404-1", ...}`. 조회 성공은 데이터 자체가 결과라서 감싸지 않는다(README 응답 규칙). 006 작성부터는 성공도 `RsData` 로 감싼다.
+- **`GlobalExceptionHandler` 는 앞으로 계속 재사용된다**: 007 수정, 008 삭제, 009 ~ 013 댓글 API 에서 "없는 대상"은 모두 `throw new ServiceException("404-1", ...)` 한 줄로 끝난다.
+
+### TDD 과정
+
+**RED** — `t3`, `t4` 를 먼저 작성. `getItem` 메서드가 없어서 2건 실패.
+
+![005 RED](docs/images/005-red.png)
+
+![005 RED 상세](docs/images/005-red-detail.png)
+
+**GREEN** — `findById()`, `getItem()`, `RsData`, `ServiceException`, `GlobalExceptionHandler` 구현 후 통과.
+
+![005 GREEN](docs/images/005-green.png)
+
+### 테스트
+
+| 테스트 | 검증 내용 |
+|---|---|
+| `ApiV1PostControllerTest.t3` | `GET /api/v1/posts/1` → 200, 1번 글의 모든 필드, `comments` 없음 |
+| `ApiV1PostControllerTest.t4` | `GET /api/v1/posts/1000` → 404, `resultCode` = `404-1`, `msg` = `1000번 글은 존재하지 않습니다.`, `data` = `null` |
+
+### 결과 스크린샷
+
+전체 결과 — 11건 실행, 실패 0, 성공률 100%
+
+![005 테스트 요약](docs/images/005-green-summary.png)
+
+브라우저 `http://localhost:8080/api/v1/posts/1` — 1번 글 객체 하나
+
+![005 브라우저 성공](docs/images/005-browser.png)
+
+브라우저 `http://localhost:8080/api/v1/posts/1000` — 404, `RsData` 형식 (`statusCode` 칸은 나오지 않음)
+
+![005 브라우저 404](docs/images/005-browser-404.png)
