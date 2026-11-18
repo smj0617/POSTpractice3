@@ -36,7 +36,7 @@
 | `009` | 글 삭제 (댓글도 함께 삭제) | 16강, 42강 | ✅ 완료 |
 | `010` | 글 작성 + 입력값 검증(400) | 22~24강, 50~52강 | ✅ 완료 |
 | `011` | `ResponseAspect`: `RsData` 의 `resultCode` 로 HTTP 상태코드 자동 설정 | 27~28강 | ✅ 완료 |
-| `012` | 글 수정 (입력값 검증 포함) | 31강, 36강 | ⏳ |
+| `012` | 글 수정 (입력값 검증 포함) | 31강, 36강 | ✅ 완료 |
 | `013` | 댓글 수정 (입력값 검증 포함) | 32강, 55강 | ⏳ |
 | `014` | 댓글 작성 + 최종 결과 정리 | 56강 | ⏳ |
 
@@ -783,3 +783,76 @@ DB를 다시 읽어 보니 1번 댓글이 그대로 있었다: `Expecting actual
 전체 결과 — 23건 실행, 실패 0, 성공률 100%
 
 ![011 테스트 요약](docs/images/011-green-summary.png)
+
+---
+
+## 012 - 글 수정 `PUT /api/v1/posts/{id}` (강의 31강, 36강, 41강)
+
+### 작업 내용
+
+| 파일 | 변경 | 역할 |
+|---|---|---|
+| `ApiV1PostController.java` | 수정 | `PostModifyReqBody`(요청 본문 + 검증 규칙), `modify()` 추가: `@PutMapping("/{id}")` |
+| `PostService.java` | 수정 | `modify(post, title, content)` → `post.modify(...)` |
+| `Post.java` | 수정 | `modify(title, content)`: 필드 값만 바꾼다 |
+| `ApiV1PostControllerTest.java` | 수정 | 수정 성공(`t10`), 없는 글 404(`t11`), 내용 1글자 400(`t12`) |
+
+### 봐야 할 부분 (읽는 순서)
+
+1. **[`ApiV1PostControllerTest.java`](src/test/java/com/back/domain/post/post/controller/ApiV1PostControllerTest.java) `t10`** — 요청 **전**의 작성일·수정일을 먼저 저장해 두고, 요청 **후** DB를 다시 읽어 비교한다: 제목·내용은 바뀌고, 작성일은 그대로, 수정일은 더 나중.
+2. **[`ApiV1PostController.java`](src/main/java/com/back/domain/post/post/controller/ApiV1PostController.java) `modify()`** — 지금까지 만든 것들이 모두 모여 있다: `@RequestBody @Valid`(010), `.get()`(006), `RsData` + `ResponseAspect`(011). 새로운 것은 `@PutMapping` 하나.
+3. **[`Post.java`](src/main/java/com/back/domain/post/post/entity/Post.java) `modify()`** — 대입 두 줄뿐. `save()` 가 어디에도 없다.
+
+### 핵심 포인트
+
+- **`@PutMapping`**: "이 주소의 자원을 보낸 내용으로 바꿔라". 같은 `/api/v1/posts/1` 이라도 GET 조회 / PUT 수정 / DELETE 삭제로 나뉜다. 이제 글 API 의 HTTP 방식 4가지가 모두 나왔다.
+
+  | 방식 | 주소 | 기능 | 커밋 |
+  |---|---|---|---|
+  | GET | `/api/v1/posts`, `/api/v1/posts/{id}` | 조회 | 004, 005 |
+  | POST | `/api/v1/posts` | 작성 | 010 |
+  | PUT | `/api/v1/posts/{id}` | 수정 | 012 |
+  | DELETE | `/api/v1/posts/{id}` | 삭제 | 009 |
+
+- **더티체킹으로 UPDATE**: `@Transactional` 안에서 엔티티를 꺼내 값을 바꾸면, 트랜잭션이 끝날 때 JPA가 "처음 꺼냈을 때의 모습"과 비교해 달라졌으면 `UPDATE` 를 만든다. 그래서 `save()` 를 부르지 않는다.
+
+  | 커밋 | 엔티티에 한 일 | JPA가 만든 SQL |
+  |---|---|---|
+  | 003 | 글의 댓글 목록에 **넣기** | `INSERT` (cascade PERSIST) |
+  | 008 | 글의 댓글 목록에서 **빼기** | `DELETE` (orphanRemoval) |
+  | 012 | 글의 제목·내용 **바꾸기** | `UPDATE` (더티체킹) |
+
+- **수정일 자동 갱신**: `BaseEntity.modifyDate` 의 `@LastModifiedDate` 가 UPDATE 직전에 지금 시각을 넣는다(002 에서 만든 것). 컨트롤러·서비스는 날짜를 전혀 신경 쓰지 않는다.
+- **UPDATE 에 모든 칸이 들어가는 이유**: 캡처의 SQL 은 `content, create_date, modify_date, title` 을 모두 설정한다. Hibernate 는 기본적으로 "바뀐 칸만"이 아니라 "모든 칸"으로 UPDATE 문을 미리 만들어 두고 재사용한다(바뀐 칸만 쓰게 하는 `@DynamicUpdate` 도 있지만 여기서는 기본값 사용).
+- **`PostModifyReqBody` 를 작성용과 따로 둔 이유**: 지금은 규칙이 같지만, "수정할 때만 다른 규칙"이 생길 때 서로 영향을 주지 않는다(강의와 동일).
+- **실패 처리 코드 0줄**: `t11`(404), `t12`(400) 은 006 · 010 에서 만든 예외 처리기가 그대로 처리한다. 새 기능을 추가할수록 공통 처리의 이득이 커진다.
+
+### TDD 과정
+
+**RED** — `t10` ~ `t12` 먼저 작성. `modify` 가 없어서 3건 실패.
+
+![012 RED](docs/images/012-red.png)
+
+**GREEN** — `Post.modify()`, `PostService.modify()`, `PostModifyReqBody`, `modify()` 구현 후 통과.
+
+![012 GREEN](docs/images/012-green.png)
+
+`t10` 테스트 출력: 응답 `200-1` 다음에, `save()` 없이 JPA가 만든 `update post set ... where id=?` (노란색)
+
+![012 UPDATE SQL](docs/images/012-update-sql.png)
+
+### 테스트
+
+| 테스트 | 검증 내용 |
+|---|---|
+| `ApiV1PostControllerTest.t10` | `PUT /posts/1` → 200, `200-1`, `1번 글이 수정되었습니다.` / DB: 제목·내용 변경, 작성일 그대로, 수정일 갱신 |
+| `ApiV1PostControllerTest.t11` | `PUT /posts/1000` → 404 |
+| `ApiV1PostControllerTest.t12` | 내용 `"내"`(1글자) → 400, `content-Size-size must be between 2 and 5000` / DB: 1번 글 제목 그대로 |
+
+### 결과 스크린샷
+
+전체 결과 — 26건 실행, 실패 0, 성공률 100%
+
+![012 테스트 요약](docs/images/012-green-summary.png)
+
+> PUT 요청도 브라우저 주소창으로 보낼 수 없어서, 위의 테스트 출력(응답 본문 + UPDATE SQL) 캡처로 확인했다.

@@ -46,6 +46,12 @@ public class PostService {
         return postRepository.findFirstByOrderByIdDesc(); // SELECT * FROM post ORDER BY id DESC LIMIT 1
     }
 
+    // [012 추가] 글 수정 (강의 31강)
+    // 리포지터리를 부르지 않는다. 엔티티의 값만 바꾸면 트랜잭션이 끝날 때 UPDATE 된다
+    public void modify(Post post, String title, String content) {
+        post.modify(title, content);
+    }
+
     // [009 추가] 글 삭제
     // 글에 달린 댓글은 Post.comments 의 orphanRemoval 덕분에 함께 삭제된다 (아래 README 009 참고)
     public void delete(Post post) {

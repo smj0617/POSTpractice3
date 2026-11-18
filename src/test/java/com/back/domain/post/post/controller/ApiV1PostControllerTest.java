@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;                       
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete; // [009 추가]
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;   // [010 추가]
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;    // [012 추가]
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -267,5 +268,95 @@ public class ApiV1PostControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.resultCode").value("400-1"))
                 .andExpect(jsonPath("$.msg").value("요청 본문이 올바르지 않습니다."));
+    }
+
+    // ---------- [012 추가] 글 수정 (강의 31강 기능, 36강·41강 테스트) ----------
+
+    @Test
+    @DisplayName("글 수정 - PUT /api/v1/posts/1 로 새 제목·내용을 보내면 200, RsData 응답, DB의 1번 글이 바뀌고 수정일이 갱신된다")
+    void t10() throws Exception {
+        // 비교 기준: 수정 전 1번 글의 작성일·수정일
+        Post before = postService.findById(1).get();
+        var createDateBefore = before.getCreateDate();
+        var modifyDateBefore = before.getModifyDate();
+
+        // ① 요청 보내기
+        ResultActions resultActions = mvc
+                .perform(
+                        put("/api/v1/posts/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {
+                                            "title": "제목 수정",
+                                            "content": "내용 수정"
+                                        }
+                                        """)
+                )
+                .andDo(print());
+
+        // ② 응답 검증
+        resultActions
+                .andExpect(handler().handlerType(ApiV1PostController.class))
+                .andExpect(handler().methodName("modify"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultCode").value("200-1"))
+                .andExpect(jsonPath("$.msg").value("1번 글이 수정되었습니다."))
+                .andExpect(jsonPath("$.data").value(nullValue()));
+
+        // ③ DB 검증: 변경을 DB에 보내고, 비운 뒤, 다시 읽는다
+        em.flush();
+        em.clear();
+
+        Post after = postService.findById(1).get();
+        assertThat(after.getTitle()).isEqualTo("제목 수정");
+        assertThat(after.getContent()).isEqualTo("내용 수정");
+        assertThat(after.getCreateDate()).isEqualTo(createDateBefore); // 작성일은 그대로
+        assertThat(after.getModifyDate()).isAfter(modifyDateBefore);   // 수정일은 더 나중 시각으로 바뀌었다
+    }
+
+    @Test
+    @DisplayName("글 수정 - 없는 글(1000번)을 수정 요청하면 404")
+    void t11() throws Exception {
+        mvc
+                .perform(
+                        put("/api/v1/posts/1000")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {
+                                            "title": "제목 수정",
+                                            "content": "내용 수정"
+                                        }
+                                        """)
+                )
+                .andDo(print())
+                .andExpect(handler().methodName("modify"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.resultCode").value("404-1"));
+    }
+
+    @Test
+    @DisplayName("글 수정 - 내용이 1글자면 400, 1번 글은 바뀌지 않는다")
+    void t12() throws Exception {
+        mvc
+                .perform(
+                        put("/api/v1/posts/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {
+                                            "title": "제목 수정",
+                                            "content": "내"
+                                        }
+                                        """)
+                )
+                .andDo(print())
+                .andExpect(handler().methodName("modify"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.resultCode").value("400-1"))
+                .andExpect(jsonPath("$.msg").value("content-Size-size must be between 2 and 5000"));
+
+        em.flush();
+        em.clear();
+
+        assertThat(postService.findById(1).get().getTitle()).isEqualTo("제목 1");
     }
 }

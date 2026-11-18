@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.DeleteMapping; // [009 추가]
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable; // [005 추가]
 import org.springframework.web.bind.annotation.PostMapping;   // [010 추가]
+import org.springframework.web.bind.annotation.PutMapping;    // [012 추가]
 import org.springframework.web.bind.annotation.RequestBody;   // [010 추가]
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -101,5 +102,34 @@ public class ApiV1PostController {
                 "%d번 글이 작성되었습니다.".formatted(post.getId()),
                 new PostDto(post)
         );
+    }
+
+    // [012 추가] 글 수정 요청 본문 (강의 31강)
+    // 작성과 규칙이 같지만 따로 만든다: 나중에 "수정할 때만 다른 규칙"이 생겨도 서로 영향을 주지 않게
+    public record PostModifyReqBody(
+            @NotBlank
+            @Size(min = 2, max = 100)
+            String title,
+
+            @NotBlank
+            @Size(min = 2, max = 5000)
+            String content
+    ) {
+    }
+
+    // [012 추가] 글 수정: PUT /api/v1/posts/{id} (강의 31강)
+    // PUT : "이 주소의 자원을 보낸 내용으로 바꿔라" → 제목과 내용을 둘 다 받는다 (README Q9)
+    // 실패 처리는 그동안 만든 것들이 그대로 맡는다
+    //   JSON 오류·규칙 위반 → 400 (010 GlobalExceptionHandler) / 없는 글 → .get() → 404 (006)
+    // 성공 응답의 HTTP 200 은 ResponseAspect 가 "200-1" 을 보고 정한다 (011)
+    // @Transactional : 메서드가 끝날 때 바뀐 제목·내용을 찾아 UPDATE (더티체킹)
+    @PutMapping("/{id}")
+    @Transactional
+    public RsData<Void> modify(@PathVariable long id, @RequestBody @Valid PostModifyReqBody reqBody) {
+        Post post = postService.findById(id).get();
+
+        postService.modify(post, reqBody.title(), reqBody.content());
+
+        return new RsData<>("200-1", "%d번 글이 수정되었습니다.".formatted(id));
     }
 }

@@ -65,6 +65,14 @@ public class Post extends BaseEntity {
                 .findFirst();
     }
 
+    // [012 추가] 글 수정: 필드 값만 바꾼다
+    // save() 를 부르지 않는다 → 트랜잭션이 끝날 때 JPA가 "처음 읽었을 때와 달라진 칸"을 찾아 UPDATE 한다 (더티체킹)
+    // modifyDate 는 BaseEntity 의 @LastModifiedDate 가 UPDATE 직전에 자동으로 갱신한다
+    public void modify(String title, String content) {
+        this.title = title;
+        this.content = content;
+    }
+
     // [008 추가] 댓글 삭제: 이 글의 댓글 목록에서 빼기만 한다
     // repository.delete() 를 부르지 않는다 → DB의 DELETE 는 JPA 가 알아서 하게 한다 (orphanRemoval)
     public void deleteComment(PostComment postComment) {
