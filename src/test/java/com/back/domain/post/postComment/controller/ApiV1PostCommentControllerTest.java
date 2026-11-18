@@ -23,6 +23,7 @@ import static org.hamcrest.Matchers.startsWith;
 import static org.assertj.core.api.Assertions.assertThat; // [008 추가]
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete; // [008 추가]
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post; // [014 추가]
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put; // [013 추가]
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -271,5 +272,88 @@ public class ApiV1PostCommentControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.resultCode").value("400-1"))
                 .andExpect(jsonPath("$.msg").value("content-NotBlank-must not be blank")); // "   " 은 3글자라 @Size 는 통과, @NotBlank 만 걸린다
+    }
+
+    // ---------- [014 추가] 댓글 작성 (강의 56강: TDD 로 댓글 작성 구현) ----------
+
+    @Test
+    @DisplayName("댓글 작성 - POST /api/v1/posts/1/comments 로 내용을 보내면 201, RsData 에 작성된 댓글(번호 포함)이 담겨 오고, 1번 글의 댓글이 4개가 된다")
+    void t11() throws Exception {
+        // ① 요청 보내기
+        ResultActions resultActions = mvc
+                .perform(
+                        post("/api/v1/posts/1/comments")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {
+                                            "content": "새 댓글"
+                                        }
+                                        """)
+                )
+                .andDo(print());
+
+        // 비교 기준: DB에서 다시 읽은 1번 글의 마지막 댓글 = 방금 작성된 댓글
+        em.flush();
+        em.clear();
+        Post post1 = postService.findById(1).get();
+        PostComment comment = post1.getComments().getLast();
+
+        // ② 응답 검증
+        resultActions
+                .andExpect(handler().handlerType(ApiV1PostCommentController.class))
+                .andExpect(handler().methodName("write"))
+                .andExpect(status().isCreated()) // ResponseAspect 가 "201-1" 을 보고 201 로 (011)
+                .andExpect(jsonPath("$.resultCode").value("201-1"))
+                .andExpect(jsonPath("$.msg").value("%d번 댓글이 작성되었습니다.".formatted(comment.getId())))
+                .andExpect(jsonPath("$.data.id").value(comment.getId()))
+                .andExpect(jsonPath("$.data.createDate").value(startsWith(comment.getCreateDate().toString().substring(0, 19))))
+                .andExpect(jsonPath("$.data.modifyDate").value(startsWith(comment.getModifyDate().toString().substring(0, 19))))
+                .andExpect(jsonPath("$.data.postId").value(1))
+                .andExpect(jsonPath("$.data.content").value("새 댓글"));
+
+        // ③ DB 검증: 1번 글의 댓글이 3개 → 4개
+        assertThat(post1.getComments()).hasSize(4);
+        assertThat(comment.getContent()).isEqualTo("새 댓글");
+    }
+
+    @Test
+    @DisplayName("댓글 작성 - 없는 글(1000번)에 댓글을 쓰면 404")
+    void t12() throws Exception {
+        mvc
+                .perform(
+                        post("/api/v1/posts/1000/comments")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {
+                                            "content": "새 댓글"
+                                        }
+                                        """)
+                )
+                .andDo(print())
+                .andExpect(handler().methodName("write"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.resultCode").value("404-1"));
+    }
+
+    @Test
+    @DisplayName("댓글 작성 - 내용이 1글자면 400, 댓글은 늘지 않는다")
+    void t13() throws Exception {
+        mvc
+                .perform(
+                        post("/api/v1/posts/1/comments")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {
+                                            "content": "새"
+                                        }
+                                        """)
+                )
+                .andDo(print())
+                .andExpect(handler().methodName("write"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.resultCode").value("400-1"))
+                .andExpect(jsonPath("$.msg").value("content-Size-size must be between 2 and 1000"));
+
+        assertThat(postService.findById(1).get().getComments()).hasSize(3);
     }
 }

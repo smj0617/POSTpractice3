@@ -38,7 +38,7 @@
 | `011` | `ResponseAspect`: `RsData` 의 `resultCode` 로 HTTP 상태코드 자동 설정 | 27~28강 | ✅ 완료 |
 | `012` | 글 수정 (입력값 검증 포함) | 31강, 36강 | ✅ 완료 |
 | `013` | 댓글 수정 (입력값 검증 포함) | 32강, 55강 | ✅ 완료 |
-| `014` | 댓글 작성 + 최종 결과 정리 | 56강 | ⏳ |
+| `014` | 댓글 작성 + 최종 결과 정리 | 56강 | ✅ 완료 |
 
 ## 만들 API
 
@@ -910,3 +910,130 @@ DB를 다시 읽어 보니 1번 댓글이 그대로 있었다: `Expecting actual
 전체 결과 — 29건 실행, 실패 0, 성공률 100%
 
 ![013 테스트 요약](docs/images/013-green-summary.png)
+
+---
+
+## 014 - 댓글 작성 `POST /api/v1/posts/{postId}/comments` (강의 56강)
+
+### 작업 내용
+
+| 파일 | 변경 | 역할 |
+|---|---|---|
+| `ApiV1PostCommentController.java` | 수정 | `PostCommentWriteReqBody`(내용 2 ~ 1000자), `write()` 추가: `@PostMapping` |
+| `PostService.java` | 수정 | `writeComment(post, content)`: `post.addComment()` + **`postRepository.flush()`** |
+| `ApiV1PostCommentControllerTest.java` | 수정 | 작성 성공(`t11`), 없는 글 404(`t12`), 내용 1글자 400(`t13`) |
+
+### 봐야 할 부분 (읽는 순서)
+
+1. **[`ApiV1PostCommentControllerTest.java`](src/test/java/com/back/domain/post/postComment/controller/ApiV1PostCommentControllerTest.java) `t11`** — 응답의 `msg` 와 `data.id` 를 **DB에 실제로 저장된 댓글 번호**와 비교한다. 이 검사 덕분에 아래 함정을 잡았다.
+2. **[`PostService.java`](src/main/java/com/back/domain/post/post/service/PostService.java) `writeComment()`** — `postRepository.flush()` 한 줄이 왜 필요한지(주석).
+3. **[`ApiV1PostCommentController.java`](src/main/java/com/back/domain/post/postComment/controller/ApiV1PostCommentController.java) `write()`** — 010 글 작성과 같은 모양. 다른 점은 `save()` 대신 `post.addComment()`(003 방식).
+
+### 핵심 포인트
+
+- **댓글은 `save()` 없이 저장된다**: `post.addComment()` 로 글의 댓글 목록에 넣으면 `cascade = PERSIST` 로 트랜잭션 끝에 `INSERT` 된다(003 샘플 댓글과 같은 방식).
+- **문제: INSERT 가 "나중에" 일어난다**: 트랜잭션이 끝나는 시점은 `write()` 가 응답(`RsData`)을 **다 만든 뒤**다. 그래서 응답을 만들 때 댓글은 아직 DB에 없고, 번호(`id`)·작성일·수정일이 모두 `null` 이다.
+- **해결: `flush()`**: "모아 둔 SQL 을 지금 DB로 보내라". `addComment()` 바로 뒤에 부르면 그 자리에서 `INSERT` 가 실행되고, DB가 매긴 번호가 객체에 채워진다. 트랜잭션은 끝나지 않으므로 이후에 문제가 생기면 여전히 롤백된다.
+- **글 작성(010)은 왜 괜찮았나**: `postRepository.save(post)` 는 `IDENTITY` 방식(번호를 DB가 매김)이라 번호를 알기 위해 **즉시** `INSERT` 한다. 댓글은 `save()` 를 부르지 않으니 그런 일이 없다.
+
+  | | 저장 방법 | INSERT 시점 | 응답 만들 때 id |
+  |---|---|---|---|
+  | 글 작성 (010) | `postRepository.save(post)` | `save()` 즉시 | 있음 |
+  | 댓글 작성, flush 없음 | `post.addComment()` | 트랜잭션 끝 (응답 이후) | **`null`** |
+  | 댓글 작성, flush 있음 (014) | `post.addComment()` + `flush()` | `flush()` 즉시 | 있음 |
+
+### 함정: `flush()` 가 없으면 "null번 댓글이 작성되었습니다."
+
+처음에는 `addComment()` 만 하고 바로 응답했다(강의 056-2 커밋과 같은 상태). 404·400 테스트는 통과했지만 `t11` 이 실패했다:
+`JSON path "$.msg" expected:<6번 댓글이 작성되었습니다.> but was:<null번 댓글이 작성되었습니다.>`
+
+응답 본문: `{"resultCode":"201-1","msg":"null번 댓글이 작성되었습니다.","data":{"id":null,"createDate":null,"modifyDate":null,"postId":1,"content":"새 댓글"}}`
+
+![014 함정](docs/images/014-trap.png)
+
+`flush()` 추가 후: 요청 처리 중에 `insert into post_comment ...` 가 먼저 실행되고, 응답에 `6번 댓글`, `"id":6` 이 담긴다 (노란색)
+
+![014 INSERT flush](docs/images/014-insert-flush.png)
+
+### TDD 과정
+
+**RED** — `t11` ~ `t13` 먼저 작성. `write` 가 없어서 3건 실패.
+
+![014 RED](docs/images/014-red.png)
+
+**함정** — `addComment()` 만으로 구현 → `t11` 실패 (번호가 `null`).
+
+**GREEN** — `postRepository.flush()` 추가 후 통과.
+
+![014 GREEN](docs/images/014-green.png)
+
+### 테스트
+
+| 테스트 | 검증 내용 |
+|---|---|
+| `ApiV1PostCommentControllerTest.t11` | `POST /posts/1/comments` `{"content":"새 댓글"}` → **201**, `201-1`, `n번 댓글이 작성되었습니다.`(n = DB에 저장된 번호), `data` 의 모든 필드 / DB: 1번 글 댓글 4개 |
+| `ApiV1PostCommentControllerTest.t12` | `POST /posts/1000/comments` → 404 |
+| `ApiV1PostCommentControllerTest.t13` | `{"content":"새"}` → 400, `content-Size-size must be between 2 and 1000` / DB: 댓글 3개 그대로 |
+
+---
+
+## 최종 결과
+
+**전체 테스트 32건, 모두 통과.** 글·댓글 각각 다건조회·단건조회·작성·수정·삭제 API 10개 완성.
+
+![최종 테스트 요약](docs/images/014-green-summary.png)
+
+### 완성된 API
+
+| 메서드 | URL | 기능 | 성공 | 실패 | 태그 |
+|---|---|---|---|---|---|
+| GET | `/api/v1/posts` | 글 다건조회 (최신순) | 200, 글 배열 | — | `004` |
+| GET | `/api/v1/posts/{id}` | 글 단건조회 | 200, 글 | 404 | `005`, `006` |
+| POST | `/api/v1/posts` | 글 작성 | 201, `RsData<PostDto>` | 400 | `010`, `011` |
+| PUT | `/api/v1/posts/{id}` | 글 수정 | 200, `RsData` | 400, 404 | `012` |
+| DELETE | `/api/v1/posts/{id}` | 글 삭제 (댓글도 함께) | 200, `RsData` | 404 | `009` |
+| GET | `/api/v1/posts/{postId}/comments` | 댓글 다건조회 (작성순) | 200, 댓글 배열 | 404 | `007` |
+| GET | `/api/v1/posts/{postId}/comments/{id}` | 댓글 단건조회 | 200, 댓글 | 404 | `007` |
+| POST | `/api/v1/posts/{postId}/comments` | 댓글 작성 | 201, `RsData<PostCommentDto>` | 400, 404 | `014` |
+| PUT | `/api/v1/posts/{postId}/comments/{id}` | 댓글 수정 | 200, `RsData` | 400, 404 | `013` |
+| DELETE | `/api/v1/posts/{postId}/comments/{id}` | 댓글 삭제 | 200, `RsData` | 404 | `008` |
+
+### 테스트 구성
+
+| 테스트 클래스 | 건수 | 다루는 것 |
+|---|---|---|
+| `BackApplicationTests` | 1 | 앱 실행 |
+| `BaseInitDataTest` | 6 | 샘플 글 3개, 댓글 5개 |
+| `ApiV1PostControllerTest` | 12 | 글 API 5개 (성공 + 404·400) |
+| `ApiV1PostCommentControllerTest` | 13 | 댓글 API 5개 (성공 + 404·400·다른 글의 댓글) |
+
+### 공통 장치 — 컨트롤러가 짧은 이유
+
+| 장치 | 하는 일 | 처음 만든 커밋 |
+|---|---|---|
+| `PostDto`, `PostCommentDto` | 엔티티 대신 보여 줄 칸만 응답 (순환참조 방지) | `004`, `007` |
+| `RsData` | 조회 외 응답을 `resultCode` / `msg` / `data` 로 통일 | `005` |
+| `GlobalExceptionHandler` | `NoSuchElementException` → 404, 검증 실패·JSON 오류 → 400 | `005`, `006`, `010` |
+| `ResponseAspect` | `RsData` 의 `resultCode` 앞 숫자로 HTTP 상태코드 설정 | `011` |
+| `@Valid` + `@NotBlank` / `@Size` | 입력값 규칙을 선언만 하면 검사 | `010` |
+
+덕분에 모든 컨트롤러 메서드는 **찾기(`.get()`) → 처리 → 결과 알리기(`RsData`)** 만 남았고, 실패 처리 코드가 한 줄도 없다.
+
+### JPA 가 대신 만든 SQL — `save()` / `delete()` 없이
+
+| 커밋 | 코드 | SQL | 이유 |
+|---|---|---|---|
+| `003`, `014` | `post.addComment()` | `INSERT` | `cascade = PERSIST` (+ `flush()` 로 즉시) |
+| `008` | `post.deleteComment()` | `DELETE` | `orphanRemoval = true` |
+| `009` | `postRepository.delete(post)` | 댓글 `DELETE` → 글 `DELETE` | `orphanRemoval` 이 부모 삭제를 자식에게 전달 |
+| `012`, `013` | `post.modify()`, `postComment.modify()` | `UPDATE` | 더티체킹 (`@Transactional`) |
+
+### 세 번의 함정 — 테스트가 잡아낸 것
+
+| 커밋 | 증상 | 원인 | 해결 |
+|---|---|---|---|
+| `003` | 샘플 댓글 0개 | 트랜잭션 밖이라 `addComment()` 가 DB에 반영 안 됨 | `@Transactional` + `self` 호출 |
+| `008` | 응답은 성공, DB엔 댓글 남음 | 목록에서만 빠지고 삭제 설정 없음 | `orphanRemoval = true` |
+| `014` | `null번 댓글이 작성되었습니다.` | INSERT 가 응답 이후에 실행 | `flush()` |
+
+세 경우 모두 **응답만 보면 그럴듯했지만**, 테스트가 DB 상태나 정확한 값을 확인해서 잡았다.

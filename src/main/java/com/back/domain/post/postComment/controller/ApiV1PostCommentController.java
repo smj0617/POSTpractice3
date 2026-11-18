@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping; // [008 추가]
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;   // [014 추가]
 import org.springframework.web.bind.annotation.PutMapping;    // [013 추가]
 import org.springframework.web.bind.annotation.RequestBody;   // [013 추가]
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -68,6 +69,34 @@ public class ApiV1PostCommentController {
         post.deleteComment(postComment); // 목록에서 빼기만 한다 → DELETE SQL 은 JPA 가 만든다
 
         return new RsData<>("200-1", "%d번 댓글이 삭제되었습니다.".formatted(id));
+    }
+
+    // [014 추가] 댓글 작성 요청 본문 (강의 56강): 내용만 받는다 (README 입력값 규칙: 2 ~ 1000자)
+    public record PostCommentWriteReqBody(
+            @NotBlank
+            @Size(min = 2, max = 1000)
+            String content
+    ) {
+    }
+
+    // [014 추가] 댓글 작성: POST /api/v1/posts/{postId}/comments (강의 56강)
+    // 010 글 작성과 같은 모양. 응답 data 에 작성된 댓글(PostCommentDto)을 담는다
+    // HTTP 201 은 ResponseAspect 가 "201-1" 을 보고 정한다 (011)
+    @PostMapping
+    @Transactional
+    public RsData<PostCommentDto> write(
+            @PathVariable long postId,
+            @RequestBody @Valid PostCommentWriteReqBody reqBody
+    ) {
+        Post post = postService.findById(postId).get(); // 글이 없으면 404
+
+        PostComment postComment = postService.writeComment(post, reqBody.content());
+
+        return new RsData<>(
+                "201-1",
+                "%d번 댓글이 작성되었습니다.".formatted(postComment.getId()),
+                new PostCommentDto(postComment)
+        );
     }
 
     // [013 추가] 댓글 수정 요청 본문 (강의 32강): 내용만 받는다 (README 입력값 규칙: 2 ~ 1000자)

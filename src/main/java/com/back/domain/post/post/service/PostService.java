@@ -53,6 +53,20 @@ public class PostService {
         post.modify(title, content);
     }
 
+    // [014 추가] 댓글 작성 (강의 56강)
+    // 댓글은 글을 통해서 만든다(post.addComment) → 003 샘플 댓글과 같은 방식, cascade PERSIST 로 저장된다
+    public PostComment writeComment(Post post, String content) {
+        PostComment postComment = post.addComment(content); // 이 시점에는 아직 INSERT 전 → id, 작성일, 수정일이 null
+
+        // flush : 모아 둔 변경(새 댓글 INSERT)을 지금 바로 DB로 보낸다 (강의 56강)
+        // → INSERT 가 실행되면서 DB가 매긴 번호(id)와 작성일·수정일이 채워진다
+        // 이게 없으면 INSERT 는 트랜잭션이 끝날 때(= 컨트롤러가 응답을 만든 뒤) 실행되어서,
+        // 응답에 "null번 댓글이 작성되었습니다." 가 나간다
+        postRepository.flush();
+
+        return postComment;
+    }
+
     // [013 추가] 댓글 수정 (강의 32강)
     // 댓글 전용 서비스 없이, 댓글은 글 서비스에서 함께 다룬다 (007 참고)
     public void modifyComment(PostComment postComment, String content) {
