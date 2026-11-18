@@ -25,8 +25,13 @@ public class PostService {
         return postRepository.save(post);     // INSERT 실행 → id 가 채워진 Post 가 돌아온다
     }
 
-    // 전체 글 목록 (id 오름차순. 최신순 정렬은 004 글 다건조회에서 만든다)
+    // 전체 글 목록 (id 오름차순)
     public List<Post> findAll() {
         return postRepository.findAll(); // SELECT * FROM post
+    }
+
+    // [004 추가] 전체 글 목록, 최신 글이 먼저 (글 다건조회 API 용)
+    public List<Post> findAllNewestFirst() {
+        return postRepository.findAllByOrderByIdDesc(); // SELECT * FROM post ORDER BY id DESC
     }
 }

@@ -25,7 +25,7 @@
 | `001` | 빈 Spring Boot 프로젝트 + 용어집 + README 뼈대 | ✅ 완료 |
 | `002` | JPA·H2 설정 + `Post` 엔티티 + 샘플 글 3개 | ✅ 완료 |
 | `003` | `PostComment` 엔티티 + 샘플 댓글 5개 | ✅ 완료 |
-| `004` | 글 다건조회 | ⏳ |
+| `004` | 글 다건조회 | ✅ 완료 |
 | `005` | 글 단건조회 | ⏳ |
 | `006` | 글 작성 (입력값 검증 포함) | ⏳ |
 | `007` | 글 수정 (입력값 검증 포함) | ⏳ |
@@ -244,3 +244,66 @@
 전체 결과 — 7건 실행, 실패 0, 성공률 100%
 
 ![003 테스트 요약](docs/images/003-green-summary.png)
+
+---
+
+## 004 - 글 다건조회 `GET /api/v1/posts`
+
+### 작업 내용
+
+| 파일 | 변경 | 역할 |
+|---|---|---|
+| `domain/post/post/controller/ApiV1PostController.java` | 추가 | 글 API 컨트롤러. `getItems()` 가 `GET /api/v1/posts` 를 처리 |
+| `domain/post/post/dto/PostDto.java` | 추가 | 응답용 글 데이터(record): `id`, `createDate`, `modifyDate`, `title`, `content` |
+| `domain/post/post/repository/PostRepository.java` | 수정 | `findAllByOrderByIdDesc()` 추가 → 최신순 조회 |
+| `domain/post/post/service/PostService.java` | 수정 | `findAllNewestFirst()` 추가 |
+| `domain/post/post/controller/ApiV1PostControllerTest.java` | 추가 | MockMvc 로 API 를 호출해 응답을 검증하는 테스트 2건 |
+
+### 봐야 할 부분 (읽는 순서)
+
+1. **[`ApiV1PostControllerTest.java`](src/test/java/com/back/domain/post/post/controller/ApiV1PostControllerTest.java) `t1`** — 컨트롤러 테스트의 2단계 구조: ① `mvc.perform(get(...))` 로 요청 → ② `andExpect(...)` 로 응답 검증. `jsonPath("$[*].id").value(contains(3, 2, 1))` 이 "최신순"을 검증하는 줄.
+2. **같은 파일 `t2`** — 응답의 모든 필드를 DB 값과 비교하고, `comments` 가 **없음**을 확인(`doesNotExist()`).
+3. **[`ApiV1PostController.java`](src/main/java/com/back/domain/post/post/controller/ApiV1PostController.java)** — `@RestController`, `@RequestMapping`, `@GetMapping` 세 어노테이션이 "주소 → 메서드"를 연결하는 방법. 그리고 엔티티 목록을 `PostDto` 목록으로 바꾸는 `stream().map(PostDto::new)`.
+4. **[`PostDto.java`](src/main/java/com/back/domain/post/post/dto/PostDto.java)** — 엔티티를 바로 응답하지 않고 DTO 로 바꾸는 이유(주석).
+5. **[`PostRepository.java`](src/main/java/com/back/domain/post/post/repository/PostRepository.java)** — 메서드 **이름**만으로 `ORDER BY id DESC` 쿼리가 만들어지는 쿼리 메서드.
+
+### 핵심 포인트
+
+- **`@RestController`** = `@Controller` + `@ResponseBody`. 메서드가 돌려준 `List<PostDto>` 를 Jackson 이 JSON 배열로 바꿔 응답 본문에 넣는다.
+- **`@RequestMapping("/api/v1/posts")` + `@GetMapping`**: 클래스의 주소 접두어 + 메서드의 HTTP 방식. 합쳐서 "GET /api/v1/posts 가 오면 `getItems()` 실행".
+- **DTO 를 쓰는 이유**: `Post` 엔티티를 그대로 응답하면 `post.comments` → `comment.post` → `post.comments` … 로 무한히 이어져 JSON 변환이 터진다(순환참조). 또 엔티티에 칸을 추가하면 API 응답까지 바뀐다. 그래서 **보여 줄 칸만 고른 상자(`PostDto`)** 에 옮겨 담는다.
+- **조회 성공은 `RsData` 로 감싸지 않는다**: 데이터 자체가 결과라서 `resultCode`/`msg` 가 필요 없다. (README 응답 규칙)
+- **쿼리 메서드**: `findAll` + `By` + `OrderBy` + `Id` + `Desc` → 스프링이 이름을 읽고 `SELECT * FROM post ORDER BY id DESC` 를 만든다. 구현 코드를 쓰지 않는다.
+- **`@Transactional(readOnly = true)`**: 읽기만 하는 작업이라고 알려 준다. JPA 가 "바뀐 데이터가 있나" 검사(변경 감지)를 건너뛰어 조금 가벼워진다.
+- **MockMvc**: 서버(8080)를 실제로 켜지 않고 컨트롤러에 HTTP 요청을 흉내 내서 보낸다. 빠르고, 응답 상태코드·JSON 을 그대로 검증할 수 있다.
+- **`handler().handlerType(...)`, `handler().methodName(...)`**: "어느 컨트롤러의 어느 메서드가 처리했는가"까지 검증한다. 이 줄 때문에 컨트롤러 클래스 껍데기를 먼저 만들었다(없으면 테스트가 컴파일되지 않는다).
+
+### TDD 과정
+
+**RED** — 비어 있는 `ApiV1PostController` 껍데기 + 테스트를 먼저 작성. 2건 실패.
+실패 메시지: `Handler type expected: ApiV1PostController but was: ResourceHttpRequestHandler` → "이 주소를 처리할 컨트롤러 메서드가 없어서 정적 파일 처리기로 넘어갔다(=404)"
+
+![004 RED](docs/images/004-red.png)
+
+![004 RED 상세](docs/images/004-red-detail.png)
+
+**GREEN** — `PostDto`, `findAllByOrderByIdDesc()`, `findAllNewestFirst()`, `getItems()` 구현 후 통과.
+
+![004 GREEN](docs/images/004-green.png)
+
+### 테스트
+
+| 테스트 | 검증 내용 |
+|---|---|
+| `ApiV1PostControllerTest.t1` | `GET /api/v1/posts` → 200, 글 3개, 번호가 3, 2, 1 순서(최신순) |
+| `ApiV1PostControllerTest.t2` | 각 글의 `id`, `createDate`, `modifyDate`, `title`, `content` 가 DB 값과 같고 `comments` 는 없다 |
+
+### 결과 스크린샷
+
+전체 결과 — 9건 실행, 실패 0, 성공률 100%
+
+![004 테스트 요약](docs/images/004-green-summary.png)
+
+앱 실행 후 브라우저에서 `http://localhost:8080/api/v1/posts` 접속 — 3번 글이 맨 위(최신순), `comments` 없음
+
+![004 브라우저 응답](docs/images/004-browser.png)
