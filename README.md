@@ -33,7 +33,7 @@
 | `006` | 404 처리 리팩터링: 컨트롤러는 `.get()` 만, 예외 처리기가 `NoSuchElementException` 처리 | 48~49강 | ✅ 완료 |
 | `007` | 댓글 다건조회, 단건조회 | 10강, 54강 | ✅ 완료 |
 | `008` | 댓글 삭제 | 11~12강 | ✅ 완료 |
-| `009` | 글 삭제 (댓글도 함께 삭제) | 16강, 42강 | ⏳ |
+| `009` | 글 삭제 (댓글도 함께 삭제) | 16강, 42강 | ✅ 완료 |
 | `010` | 글 작성 + 입력값 검증(400) | 22~24강, 50~52강 | ⏳ |
 | `011` | `ResponseAspect`: `RsData` 의 `resultCode` 로 HTTP 상태코드 자동 설정 | 27~28강 | ⏳ |
 | `012` | 글 수정 (입력값 검증 포함) | 31강, 36강 | ⏳ |
@@ -586,3 +586,62 @@ DB를 다시 읽어 보니 1번 댓글이 그대로 있었다: `Expecting actual
 ![008 테스트 요약](docs/images/008-green-summary.png)
 
 > DELETE 요청은 브라우저 주소창으로 보낼 수 없어서, 브라우저 캡처 대신 위의 테스트 출력(응답 본문 + DELETE SQL) 캡처로 확인했다.
+
+---
+
+## 009 - 글 삭제 `DELETE /api/v1/posts/{id}` (강의 16강, 42강)
+
+### 작업 내용
+
+| 파일 | 변경 | 역할 |
+|---|---|---|
+| `ApiV1PostController.java` | 수정 | `deleteItem()` 추가: `@DeleteMapping("/{id}")`, 성공 시 `RsData` |
+| `PostService.java` | 수정 | `delete(Post)` 추가 → `postRepository.delete()` |
+| `ApiV1PostControllerTest.java` | 수정 | 댓글 달린 글 삭제(`t5`), 없는 글 삭제 404(`t6`) 테스트 |
+
+### 봐야 할 부분 (읽는 순서)
+
+1. **[`ApiV1PostControllerTest.java`](src/test/java/com/back/domain/post/post/controller/ApiV1PostControllerTest.java) `t5`** — 일부러 **댓글 3개가 달린 1번 글**을 지운다. DB 검증(③)에서 글뿐 아니라 댓글 1, 2, 3 도 사라졌는지, **다른 글의 댓글(4번)은 남았는지**까지 본다. `em.find(PostComment.class, 1L)` 은 "1번 댓글을 DB에서 직접 찾아라"(없으면 `null`).
+2. **[`ApiV1PostController.java`](src/main/java/com/back/domain/post/post/controller/ApiV1PostController.java) `deleteItem()`** — 008 댓글 삭제와 모양이 거의 같다. 다른 점은 `post.deleteComment()` 대신 `postService.delete(post)`.
+3. **[`Post.java`](src/main/java/com/back/domain/post/post/entity/Post.java) 의 `orphanRemoval = true`** — 008 에서 넣은 이 설정이 이번에도 일한다(아래).
+
+### 핵심 포인트
+
+- **외래키 때문에 순서가 중요하다**: `post_comment.post_id` 가 `post.id` 를 가리킨다. 댓글이 남아 있는데 글부터 지우면 "가리킬 대상이 없는 댓글"이 생기므로 DB가 거부한다(외래키 제약 위반). 그래서 **댓글 먼저, 글 나중**.
+- **`orphanRemoval = true` 는 부모 삭제도 따라간다**: JPA 규칙상 `orphanRemoval = true` 인 관계는 부모(글)가 삭제될 때 자식(댓글)에게도 삭제가 전달된다. 그래서 008 에서 넣은 설정만으로 아래 순서의 SQL 이 자동으로 나온다.
+  ```
+  delete from post_comment where id=?   ← 1번 댓글
+  delete from post_comment where id=?   ← 2번 댓글
+  delete from post_comment where id=?   ← 3번 댓글
+  delete from post where id=?           ← 1번 글
+  ```
+  (같은 효과를 `cascade = REMOVE` 로 명시할 수도 있다. 이 프로젝트는 `orphanRemoval` 하나로 "목록에서 빼기 → 삭제"와 "글 삭제 → 댓글 삭제"를 모두 처리한다.)
+- **그래서 이번엔 함정 단계가 없다**: 003, 008 과 달리 구현 직후 바로 GREEN. 테스트가 "댓글까지 지워졌는지"를 검사하고 있어서, 혹시 나중에 `orphanRemoval` 을 지우면 이 테스트가 깨져서 알려 준다.
+- **글은 `repository.delete()`, 댓글은 목록에서 빼기**: 글은 다른 엔티티에 딸린 게 아니라서 리포지터리로 직접 지운다. 댓글은 글에 딸려 있으니 글의 목록을 통해 지운다(008).
+
+### TDD 과정
+
+**RED** — `t5`, `t6` 먼저 작성. `deleteItem` 이 없어서 2건 실패.
+
+![009 RED](docs/images/009-red.png)
+
+**GREEN** — `PostService.delete()`, `deleteItem()` 구현 후 바로 통과.
+
+![009 GREEN](docs/images/009-green.png)
+
+`t5` 테스트 출력: 응답 본문 다음에 댓글 3개 → 글 순서로 DELETE 실행 (노란색)
+
+![009 DELETE SQL](docs/images/009-delete-sql.png)
+
+### 테스트
+
+| 테스트 | 검증 내용 |
+|---|---|
+| `ApiV1PostControllerTest.t5` | `DELETE /posts/1` → 200, `200-1`, `1번 글이 삭제되었습니다.` / DB: 1번 글 없음, 글 2개, 댓글 1·2·3 없음, 댓글 4 있음 |
+| `ApiV1PostControllerTest.t6` | `DELETE /posts/1000` → 404 / 글 3개 그대로 |
+
+### 결과 스크린샷
+
+전체 결과 — 20건 실행, 실패 0, 성공률 100%
+
+![009 테스트 요약](docs/images/009-green-summary.png)

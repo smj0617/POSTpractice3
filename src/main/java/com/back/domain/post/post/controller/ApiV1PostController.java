@@ -3,8 +3,10 @@ package com.back.domain.post.post.controller;
 import com.back.domain.post.post.dto.PostDto;
 import com.back.domain.post.post.entity.Post;               // [005 추가]
 import com.back.domain.post.post.service.PostService;
+import com.back.global.rsData.RsData;                         // [009 추가]
 import lombok.RequiredArgsConstructor;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.DeleteMapping; // [009 추가]
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable; // [005 추가]
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -47,5 +49,17 @@ public class ApiV1PostController {
         Post post = postService.findById(id).get();
 
         return new PostDto(post);
+    }
+
+    // [009 추가] 글 삭제: DELETE /api/v1/posts/{id} (강의 16강)
+    // 성공: RsData("200-1", "1번 글이 삭제되었습니다.") / 없는 글: .get() → 404 (006)
+    @DeleteMapping("/{id}")
+    @Transactional
+    public RsData<Void> deleteItem(@PathVariable long id) {
+        Post post = postService.findById(id).get();
+
+        postService.delete(post);
+
+        return new RsData<>("200-1", "%d번 글이 삭제되었습니다.".formatted(id));
     }
 }

@@ -40,4 +40,10 @@ public class PostService {
     public Optional<Post> findById(long id) {
         return postRepository.findById(id); // SELECT * FROM post WHERE id = ?
     }
+
+    // [009 추가] 글 삭제
+    // 글에 달린 댓글은 Post.comments 의 orphanRemoval 덕분에 함께 삭제된다 (아래 README 009 참고)
+    public void delete(Post post) {
+        postRepository.delete(post); // DELETE FROM post_comment ... → DELETE FROM post WHERE id = ?
+    }
 }

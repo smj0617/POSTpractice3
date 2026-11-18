@@ -2,6 +2,8 @@ package com.back.domain.post.post.controller;
 
 import com.back.domain.post.post.entity.Post;
 import com.back.domain.post.post.service.PostService;
+import com.back.domain.post.postComment.entity.PostComment; // [009 추가]
+import jakarta.persistence.EntityManager;                   // [009 추가]
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +19,8 @@ import java.util.List;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.nullValue; // [005 추가]
 import static org.hamcrest.Matchers.startsWith;
+import static org.assertj.core.api.Assertions.assertThat;                                 // [009 추가]
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete; // [009 추가]
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -34,6 +38,10 @@ public class ApiV1PostControllerTest {
 
     @Autowired
     private PostService postService;
+
+    // [009 추가] flush() 로 변경을 DB에 보내고 clear() 로 비운 뒤, DB에서 다시 읽어 확인하는 용도 (008 과 같은 방식)
+    @Autowired
+    private EntityManager em;
 
     @Test
     @DisplayName("글 다건조회 - GET /api/v1/posts 요청하면 200 과 글 3개가 최신순(3, 2, 1)으로 응답된다")
@@ -120,5 +128,49 @@ public class ApiV1PostControllerTest {
                 .andExpect(jsonPath("$.resultCode").value("404-1"))
                 .andExpect(jsonPath("$.msg").value("해당 데이터가 존재하지 않습니다.")) // [006 수정] 강의 48강 공통 메시지
                 .andExpect(jsonPath("$.data").value(nullValue()));             // 키는 있고 값은 null
+    }
+
+    // ---------- [009 추가] 글 삭제 (강의 16강 기능, 42강 테스트) ----------
+
+    @Test
+    @DisplayName("글 삭제 - 댓글 3개가 달린 1번 글을 DELETE /api/v1/posts/1 로 삭제하면 200, RsData 응답, 글과 댓글이 모두 DB에서 사라진다")
+    void t5() throws Exception {
+        // ① 요청 보내기
+        ResultActions resultActions = mvc
+                .perform(delete("/api/v1/posts/1"))
+                .andDo(print());
+
+        // ② 응답 검증
+        resultActions
+                .andExpect(handler().handlerType(ApiV1PostController.class))
+                .andExpect(handler().methodName("deleteItem"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultCode").value("200-1"))
+                .andExpect(jsonPath("$.msg").value("1번 글이 삭제되었습니다."))
+                .andExpect(jsonPath("$.data").value(nullValue()));
+
+        // ③ DB 검증
+        em.flush();
+        em.clear();
+
+        assertThat(postService.findById(1)).isEmpty();             // 1번 글이 없다
+        assertThat(postService.count()).isEqualTo(2);              // 글은 2, 3번만 남는다
+        assertThat(em.find(PostComment.class, 1L)).isNull();       // 1번 글의 댓글 1, 2, 3 도 함께 사라졌다
+        assertThat(em.find(PostComment.class, 2L)).isNull();
+        assertThat(em.find(PostComment.class, 3L)).isNull();
+        assertThat(em.find(PostComment.class, 4L)).isNotNull();    // 다른 글(2번)의 댓글은 그대로
+    }
+
+    @Test
+    @DisplayName("글 삭제 - 없는 글(1000번)을 삭제 요청하면 404, 글 3개는 그대로 남는다")
+    void t6() throws Exception {
+        mvc
+                .perform(delete("/api/v1/posts/1000"))
+                .andDo(print())
+                .andExpect(handler().methodName("deleteItem"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.resultCode").value("404-1"));
+
+        assertThat(postService.count()).isEqualTo(3);
     }
 }
