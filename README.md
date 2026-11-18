@@ -31,7 +31,7 @@
 | `004` | 글 다건조회 | 4강, 8~9강, 45강 | ✅ 완료 |
 | `005` | 글 단건조회 | 5강, 44강 | ✅ 완료 |
 | `006` | 404 처리 리팩터링: 컨트롤러는 `.get()` 만, 예외 처리기가 `NoSuchElementException` 처리 | 48~49강 | ✅ 완료 |
-| `007` | 댓글 다건조회, 단건조회 | 10강, 54강 | ⏳ |
+| `007` | 댓글 다건조회, 단건조회 | 10강, 54강 | ✅ 완료 |
 | `008` | 댓글 삭제 | 11~12강 | ⏳ |
 | `009` | 글 삭제 (댓글도 함께 삭제) | 16강, 42강 | ⏳ |
 | `010` | 글 작성 + 입력값 검증(400) | 22~24강, 50~52강 | ⏳ |
@@ -437,3 +437,84 @@
 브라우저 `http://localhost:8080/api/v1/posts/1000`
 
 ![006 브라우저 404](docs/images/006-browser-404.png)
+
+---
+
+## 007 - 댓글 다건조회 `GET /api/v1/posts/{postId}/comments`, 단건조회 `GET /api/v1/posts/{postId}/comments/{id}` (강의 10강, 54강)
+
+### 작업 내용
+
+| 파일 | 변경 | 역할 |
+|---|---|---|
+| `domain/post/postComment/controller/ApiV1PostCommentController.java` | 추가 | 댓글 API. `getItems()`(다건), `getItem()`(단건) |
+| `domain/post/postComment/dto/PostCommentDto.java` | 추가 | 응답용 댓글 데이터: `id`, `createDate`, `modifyDate`, `postId`, `content` |
+| `domain/post/post/entity/Post.java` | 수정 | `@OrderBy("id ASC")` 로 댓글 순서 고정, `findCommentById()` 추가 |
+| `domain/post/postComment/controller/ApiV1PostCommentControllerTest.java` | 추가 | 댓글 조회 테스트 5건 |
+
+### 봐야 할 부분 (읽는 순서)
+
+1. **[`ApiV1PostCommentControllerTest.java`](src/test/java/com/back/domain/post/postComment/controller/ApiV1PostCommentControllerTest.java)** — 5개 상황을 표로 정리하면:
+
+   | 요청 | 상황 | 결과 |
+   |---|---|---|
+   | `/posts/1/comments` | 댓글 3개인 글 | 200, `[1, 2, 3]` |
+   | `/posts/3/comments` | 댓글 없는 글 | 200, `[]` |
+   | `/posts/1000/comments` | 없는 글 | 404 |
+   | `/posts/1/comments/2` | 1번 글의 2번 댓글 | 200 |
+   | `/posts/1/comments/4` | 4번 댓글은 있지만 **2번 글** 것 | 404 |
+
+2. **[`ApiV1PostCommentController.java`](src/main/java/com/back/domain/post/postComment/controller/ApiV1PostCommentController.java)** — 클래스 주소에 `{postId}` 가 들어간 것, 그리고 `.get()` 두 번(글, 댓글)으로 404 가 저절로 처리되는 것.
+3. **[`Post.java`](src/main/java/com/back/domain/post/post/entity/Post.java) `findCommentById()`** — "그 글의 댓글 중에서만" 찾기 때문에 `t5` 가 404 가 된다.
+4. **[`PostCommentDto.java`](src/main/java/com/back/domain/post/postComment/dto/PostCommentDto.java)** — 글 객체 대신 `postId` 숫자만 담는 이유.
+
+### 핵심 포인트
+
+- **주소 설계**: 댓글은 글에 속하므로 `/posts/{postId}/comments` 처럼 "글 아래"에 둔다. 주소만 봐도 "몇 번 글의 댓글"인지 보인다.
+- **`[]` 는 실패가 아니다**: 3번 글은 존재하고 댓글이 0개일 뿐이다. 404 는 "글 자체가 없을 때"만.
+- **다른 글의 댓글은 404**: 4번 댓글이 DB에 있어도 `post1.findCommentById(4)` 는 1번 글의 댓글 목록에서만 찾으므로 빈 `Optional` → `.get()` → `NoSuchElementException` → 404. 006 에서 만든 예외 처리기 덕분에 **컨트롤러에 실패 처리 코드가 하나도 없다.**
+- **`@OrderBy("id ASC")`**: JPA가 댓글 목록을 불러올 때 `ORDER BY id ASC` 를 붙인다. 이게 없으면 DB가 주는 순서를 믿어야 해서 "작성순"이 보장되지 않는다.
+- **`@Transactional(readOnly = true)` 가 꼭 필요한 이유**: `comments` 는 LAZY 라서 `post.getComments()` 를 처음 쓸 때 DB에서 불러온다. 트랜잭션(=DB 연결)이 끝난 뒤라면 불러올 수 없어 에러가 난다.
+- **`PostCommentDto` 에 `post` 대신 `postId`**: 글 객체를 넣으면 글 → 댓글들 → 글 … 순환참조가 생긴다. 프론트에는 "몇 번 글의 댓글인지"만 알려 주면 충분하다.
+- **댓글 서비스는 아직 없다**: 댓글은 언제나 글을 통해 꺼내므로(`post.getComments()`) `PostService` 로 충분하다.
+
+### TDD 과정
+
+**RED** — 빈 `ApiV1PostCommentController` 껍데기 + 테스트 5건 먼저 작성. 5건 모두 실패.
+
+![007 RED](docs/images/007-red.png)
+
+**GREEN** — `PostCommentDto`, `@OrderBy`, `findCommentById()`, `getItems()`, `getItem()` 구현 후 통과.
+
+![007 GREEN](docs/images/007-green.png)
+
+### 테스트
+
+| 테스트 | 검증 내용 |
+|---|---|
+| `ApiV1PostCommentControllerTest.t1` | `/posts/1/comments` → 200, 댓글 3개가 1, 2, 3 순서, 모든 필드가 DB 값과 같고 `post` 객체는 없음 |
+| `ApiV1PostCommentControllerTest.t2` | `/posts/3/comments` → 200, 빈 배열 |
+| `ApiV1PostCommentControllerTest.t3` | `/posts/1000/comments` → 404, `404-1` |
+| `ApiV1PostCommentControllerTest.t4` | `/posts/1/comments/2` → 200, 2번 댓글(`댓글 1-2`)의 모든 필드 |
+| `ApiV1PostCommentControllerTest.t5` | `/posts/1/comments/4` → 404 (4번 댓글은 2번 글 소속) |
+
+### 결과 스크린샷
+
+전체 결과 — 16건 실행, 실패 0, 성공률 100%
+
+![007 테스트 요약](docs/images/007-green-summary.png)
+
+브라우저 `/api/v1/posts/1/comments` — 1번 글의 댓글 3개, 작성순
+
+![007 다건조회](docs/images/007-browser-items.png)
+
+브라우저 `/api/v1/posts/3/comments` — 빈 배열
+
+![007 빈 배열](docs/images/007-browser-empty.png)
+
+브라우저 `/api/v1/posts/1/comments/2` — 2번 댓글, `postId` 1
+
+![007 단건조회](docs/images/007-browser-item.png)
+
+브라우저 `/api/v1/posts/1/comments/4` — 다른 글의 댓글이라 404
+
+![007 404](docs/images/007-browser-404.png)

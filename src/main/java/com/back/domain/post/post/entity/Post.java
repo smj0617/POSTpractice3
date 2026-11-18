@@ -5,11 +5,13 @@ import com.back.global.jpa.entity.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy; // [007 추가]
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;          // [007 추가]
 
 import static jakarta.persistence.CascadeType.PERSIST;
 import static lombok.AccessLevel.PROTECTED;
@@ -30,7 +32,11 @@ public class Post extends BaseEntity {
     //                     → post 테이블에는 칼럼이 생기지 않는다
     // cascade = PERSIST : 글이 저장될 때(트랜잭션이 끝날 때), comments 에 새로 들어온 댓글도 같이 저장한다
     //                     → 댓글마다 save() 를 부르지 않아도 INSERT 된다
+    // [007 추가] @OrderBy("id ASC") : DB에서 댓글을 불러올 때 항상 번호 순서(먼저 단 댓글이 먼저)로 가져온다
+    //                                → SELECT ... FROM post_comment WHERE post_id = ? ORDER BY id ASC
+    //                                (없으면 DB가 주는 순서가 보장되지 않는다)
     @OneToMany(mappedBy = "post", cascade = PERSIST)
+    @OrderBy("id ASC")
     private List<PostComment> comments = new ArrayList<>();
 
     // 글을 만들 때는 이 생성자를 쓴다 (id, 날짜는 저장할 때 자동으로 채워짐)
@@ -45,5 +51,14 @@ public class Post extends BaseEntity {
         PostComment postComment = new PostComment(this, content); // 댓글 → 글 연결 (DB의 post_id 가 이걸로 정해진다)
         comments.add(postComment);                                 // 글 → 댓글 연결 (자바 객체끼리의 연결)
         return postComment;
+    }
+
+    // [007 추가] 이 글의 댓글 중에서 id 로 1개 찾기 (없으면 빈 Optional)
+    // 이 글의 댓글 목록 안에서만 찾으므로, 다른 글의 댓글 번호를 넣으면 못 찾는다
+    // → "댓글은 그 글의 댓글로만 찾는다" (GLOSSARY) 규칙이 여기서 지켜진다
+    public Optional<PostComment> findCommentById(long id) {
+        return comments.stream()
+                .filter(comment -> comment.getId() == id)
+                .findFirst();
     }
 }
