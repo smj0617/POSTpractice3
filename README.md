@@ -32,7 +32,7 @@
 | `005` | 글 단건조회 | 5강, 44강 | ✅ 완료 |
 | `006` | 404 처리 리팩터링: 컨트롤러는 `.get()` 만, 예외 처리기가 `NoSuchElementException` 처리 | 48~49강 | ✅ 완료 |
 | `007` | 댓글 다건조회, 단건조회 | 10강, 54강 | ✅ 완료 |
-| `008` | 댓글 삭제 | 11~12강 | ⏳ |
+| `008` | 댓글 삭제 | 11~12강 | ✅ 완료 |
 | `009` | 글 삭제 (댓글도 함께 삭제) | 16강, 42강 | ⏳ |
 | `010` | 글 작성 + 입력값 검증(400) | 22~24강, 50~52강 | ⏳ |
 | `011` | `ResponseAspect`: `RsData` 의 `resultCode` 로 HTTP 상태코드 자동 설정 | 27~28강 | ⏳ |
@@ -518,3 +518,71 @@
 브라우저 `/api/v1/posts/1/comments/4` — 다른 글의 댓글이라 404
 
 ![007 404](docs/images/007-browser-404.png)
+
+---
+
+## 008 - 댓글 삭제 `DELETE /api/v1/posts/{postId}/comments/{id}` (강의 11~12강, 21강, 55강)
+
+### 작업 내용
+
+| 파일 | 변경 | 역할 |
+|---|---|---|
+| `ApiV1PostCommentController.java` | 수정 | `deleteItem()` 추가: `@DeleteMapping`, 성공 시 `RsData` 응답 |
+| `Post.java` | 수정 | `deleteComment()` 추가(목록에서 빼기), `orphanRemoval = true` 추가 |
+| `ApiV1PostCommentControllerTest.java` | 수정 | 삭제 성공(`t6`), 다른 글의 댓글 삭제 404(`t7`) 테스트 + `EntityManager` 로 DB 재조회 |
+
+### 봐야 할 부분 (읽는 순서)
+
+1. **[`ApiV1PostCommentControllerTest.java`](src/test/java/com/back/domain/post/postComment/controller/ApiV1PostCommentControllerTest.java) `t6`** — 응답 검증(②) 다음에 **DB 검증(③)** 이 있다. `em.flush()` + `em.clear()` 로 "자바 객체"가 아니라 "DB에 실제로 남은 것"을 다시 읽는다.
+2. **[`ApiV1PostCommentController.java`](src/main/java/com/back/domain/post/postComment/controller/ApiV1PostCommentController.java) `deleteItem()`** — `repository.delete()` 를 부르지 않는다. `post.deleteComment()` 로 **목록에서 빼기만** 한다.
+3. **[`Post.java`](src/main/java/com/back/domain/post/post/entity/Post.java) 의 `orphanRemoval = true`** — 목록에서 빠진 댓글을 DB에서 지우게 하는 한 단어. 아래 "함정" 참고.
+
+### 핵심 포인트
+
+- **`@DeleteMapping`**: HTTP 의 DELETE 방식. 같은 주소(`/posts/1/comments/1`)라도 GET 이면 조회, DELETE 면 삭제다. (강의 11강은 편의상 GET 으로 시작해 21강에서 DELETE 로 바꿨고, 여기서는 처음부터 DELETE)
+- **성공도 `RsData`**: 삭제는 조회가 아니라서 "무슨 일이 일어났는지"를 `resultCode` + `msg` 로 알려 준다. 지운 데이터는 돌려줄 게 없으므로 `RsData<Void>`, `data` 는 `null`.
+- **더티체킹(변경 감지)**: `@Transactional` 메서드 안에서 엔티티를 바꿔 두면, 메서드가 끝날 때 JPA 가 처음 상태와 비교해 바뀐 부분의 SQL 을 만들어 실행한다. 그래서 `save()` / `delete()` 를 부르지 않는다.
+- **`orphanRemoval = true`**: 부모(글)의 목록에서 빠진 자식(댓글) = "고아". 고아를 DB에서 지운다.
+- **`em.flush()` / `em.clear()`** (테스트): 테스트도 `@Transactional` 이라 DELETE 가 아직 DB로 안 갔을 수 있고, 같은 자바 객체를 다시 보면 "목록에서 빠진 상태"가 보일 뿐이다. flush 로 SQL 을 보내고, clear 로 객체를 버린 뒤 다시 읽어야 진짜 DB 상태다.
+- **실패 처리는 여전히 0줄**: 없는 글·다른 글의 댓글은 `.get()` → 006 의 예외 처리기 → 404 (`t7`).
+
+### 함정: `orphanRemoval` 이 없으면 목록에서만 빠지고 DB에는 남는다
+
+처음에는 `deleteComment()`(목록에서 빼기)만 만들었다. 응답은 `200-1 "1번 댓글이 삭제되었습니다."` 로 성공처럼 보였지만,
+DB를 다시 읽어 보니 1번 댓글이 그대로 있었다: `Expecting actual: [1L, 2L, 3L] to contain exactly: [2L, 3L]`
+
+![008 함정](docs/images/008-trap.png)
+
+`orphanRemoval = true` 를 추가하자 트랜잭션 끝에 `delete from post_comment where id=?` 가 실행됐다.
+(테스트 출력: 위쪽에 응답 본문, 노란색이 JPA가 만든 DELETE SQL)
+
+![008 DELETE SQL](docs/images/008-delete-sql.png)
+
+> 응답만 검사했다면 이 버그를 놓쳤다. **DB 상태까지 검증**해야 하는 이유.
+
+### TDD 과정
+
+**RED** — 테스트 2건 먼저 작성. `deleteItem` 이 없어서 2건 실패.
+
+![008 RED](docs/images/008-red.png)
+
+**함정** — `deleteComment()` + `deleteItem()` 만 구현 → `t6` 의 DB 검증 실패 (위 캡처).
+
+**GREEN** — `orphanRemoval = true` 추가 후 통과.
+
+![008 GREEN](docs/images/008-green.png)
+
+### 테스트
+
+| 테스트 | 검증 내용 |
+|---|---|
+| `ApiV1PostCommentControllerTest.t6` | `DELETE /posts/1/comments/1` → 200, `200-1`, `1번 댓글이 삭제되었습니다.`, `data` = `null` / DB 재조회 시 1번 글 댓글이 `[2, 3]` |
+| `ApiV1PostCommentControllerTest.t7` | `DELETE /posts/1/comments/4` → 404 / DB 재조회 시 2번 글 댓글이 `[4, 5]` 그대로 |
+
+### 결과 스크린샷
+
+전체 결과 — 18건 실행, 실패 0, 성공률 100%
+
+![008 테스트 요약](docs/images/008-green-summary.png)
+
+> DELETE 요청은 브라우저 주소창으로 보낼 수 없어서, 브라우저 캡처 대신 위의 테스트 출력(응답 본문 + DELETE SQL) 캡처로 확인했다.

@@ -35,7 +35,10 @@ public class Post extends BaseEntity {
     // [007 추가] @OrderBy("id ASC") : DB에서 댓글을 불러올 때 항상 번호 순서(먼저 단 댓글이 먼저)로 가져온다
     //                                → SELECT ... FROM post_comment WHERE post_id = ? ORDER BY id ASC
     //                                (없으면 DB가 주는 순서가 보장되지 않는다)
-    @OneToMany(mappedBy = "post", cascade = PERSIST)
+    // [008 추가] orphanRemoval = true : comments 목록에서 빠진 댓글(고아)은 DB에서도 삭제한다 (강의 12강)
+    //                                  → comments.remove(댓글) 만 해도 트랜잭션이 끝날 때 DELETE 가 실행된다
+    //                                  (없으면 목록에서만 빠지고 DB에는 그대로 남는다)
+    @OneToMany(mappedBy = "post", cascade = PERSIST, orphanRemoval = true)
     @OrderBy("id ASC")
     private List<PostComment> comments = new ArrayList<>();
 
@@ -60,5 +63,11 @@ public class Post extends BaseEntity {
         return comments.stream()
                 .filter(comment -> comment.getId() == id)
                 .findFirst();
+    }
+
+    // [008 추가] 댓글 삭제: 이 글의 댓글 목록에서 빼기만 한다
+    // repository.delete() 를 부르지 않는다 → DB의 DELETE 는 JPA 가 알아서 하게 한다 (orphanRemoval)
+    public void deleteComment(PostComment postComment) {
+        comments.remove(postComment);
     }
 }

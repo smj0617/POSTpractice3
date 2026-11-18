@@ -4,8 +4,10 @@ import com.back.domain.post.post.entity.Post;
 import com.back.domain.post.post.service.PostService;
 import com.back.domain.post.postComment.dto.PostCommentDto;
 import com.back.domain.post.postComment.entity.PostComment;
+import com.back.global.rsData.RsData;                         // [008 추가]
 import lombok.RequiredArgsConstructor;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.DeleteMapping; // [008 추가]
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -47,5 +49,19 @@ public class ApiV1PostCommentController {
         PostComment postComment = post.findCommentById(id).get(); // 이 글의 댓글 중에서만 찾는다
 
         return new PostCommentDto(postComment);
+    }
+
+    // [008 추가] 댓글 삭제: DELETE /api/v1/posts/{postId}/comments/{id} (강의 11~12강, 21강에서 DELETE 방식으로)
+    // 삭제는 조회가 아니므로 성공도 RsData 로 감싼다. 지울 데이터는 이제 없으므로 data 는 비운다 → RsData<Void>
+    // @Transactional : 메서드가 끝날 때 JPA가 바뀐 것(댓글 목록에서 빠진 댓글)을 찾아 DB에 반영한다 (더티체킹)
+    @DeleteMapping("/{id}")
+    @Transactional
+    public RsData<Void> deleteItem(@PathVariable long postId, @PathVariable long id) {
+        Post post = postService.findById(postId).get();                // 글이 없으면 404
+        PostComment postComment = post.findCommentById(id).get();      // 그 글의 댓글이 아니면 404
+
+        post.deleteComment(postComment); // 목록에서 빼기만 한다 → DELETE SQL 은 JPA 가 만든다
+
+        return new RsData<>("200-1", "%d번 댓글이 삭제되었습니다.".formatted(id));
     }
 }
