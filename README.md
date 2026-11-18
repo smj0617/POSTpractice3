@@ -35,7 +35,7 @@
 | `008` | 댓글 삭제 | 11~12강 | ✅ 완료 |
 | `009` | 글 삭제 (댓글도 함께 삭제) | 16강, 42강 | ✅ 완료 |
 | `010` | 글 작성 + 입력값 검증(400) | 22~24강, 50~52강 | ✅ 완료 |
-| `011` | `ResponseAspect`: `RsData` 의 `resultCode` 로 HTTP 상태코드 자동 설정 | 27~28강 | ⏳ |
+| `011` | `ResponseAspect`: `RsData` 의 `resultCode` 로 HTTP 상태코드 자동 설정 | 27~28강 | ✅ 완료 |
 | `012` | 글 수정 (입력값 검증 포함) | 31강, 36강 | ⏳ |
 | `013` | 댓글 수정 (입력값 검증 포함) | 32강, 55강 | ⏳ |
 | `014` | 댓글 작성 + 최종 결과 정리 | 56강 | ⏳ |
@@ -50,7 +50,7 @@
 | GET | `/api/v1/posts/{postId}/comments/{id}` | 댓글 단건조회 | 200, 댓글 | `007` |
 | DELETE | `/api/v1/posts/{postId}/comments/{id}` | 댓글 삭제 | 200, `RsData` | `008` |
 | DELETE | `/api/v1/posts/{id}` | 글 삭제 | 200, `RsData` | `009` |
-| POST | `/api/v1/posts` | 글 작성 | 201, `RsData` (HTTP 201 은 `011` 부터) | `010` |
+| POST | `/api/v1/posts` | 글 작성 | 201, `RsData` | `010`, `011` |
 | PUT | `/api/v1/posts/{id}` | 글 수정 | 200, `RsData` | `012` |
 | PUT | `/api/v1/posts/{postId}/comments/{id}` | 댓글 수정 | 200, `RsData` | `013` |
 | POST | `/api/v1/posts/{postId}/comments` | 댓글 작성 | 201, `RsData` | `014` |
@@ -716,3 +716,70 @@ DB를 다시 읽어 보니 1번 댓글이 그대로 있었다: `Expecting actual
 전체 결과 — 23건 실행, 실패 0, 성공률 100%
 
 ![010 테스트 요약](docs/images/010-green-summary.png)
+
+---
+
+## 011 - `ResponseAspect`: `RsData` 의 `resultCode` 로 HTTP 상태코드 자동 설정 (강의 26~28강, 37강)
+
+### 왜 필요한가
+010 의 글 작성은 `resultCode` 가 `"201-1"` 인데 HTTP 상태코드는 **200** 이었다. 메서드가 객체만 돌려주면 스프링은 항상 200 으로 응답하기 때문이다(강의 27강).
+`ResponseEntity.status(201).body(...)` 로 메서드마다 직접 정할 수도 있지만, 반환 타입이 바뀌고 코드가 길어진다(강의 28강: "가성비가 나쁘다").
+그래서 **"RsData 를 돌려주는 모든 컨트롤러 메서드"를 감싸서, 끝난 뒤 상태코드를 맞춰 주는 Aspect** 를 한 번만 만든다.
+
+### 작업 내용
+
+| 파일 | 변경 | 역할 |
+|---|---|---|
+| `global/aspect/ResponseAspect.java` | 추가 | `@Aspect` + `@Around`: RsData 를 돌려주는 액션 메서드 실행 후 `response.setStatus(rsData.statusCode())` |
+| `ApiV1PostControllerTest.java` | 수정 | `t7` 의 `status().isOk()` → `status().isCreated()` (**테스트 먼저**) |
+
+> 의존성 추가 없음: AspectJ(`aspectjweaver`)는 `spring-boot-starter-data-jpa` 가 이미 가져온다 (`./gradlew dependencies` 로 확인, 강의 저장소도 동일).
+
+### 봐야 할 부분 (읽는 순서)
+
+1. **[`ApiV1PostControllerTest.java`](src/test/java/com/back/domain/post/post/controller/ApiV1PostControllerTest.java) `t7`** — 바뀐 것은 `isCreated()` 한 줄. 요구사항("작성 성공은 HTTP 201")을 테스트에 먼저 반영했다.
+2. **[`ResponseAspect.java`](src/main/java/com/back/global/aspect/ResponseAspect.java)** — `@Around` 의 포인트컷(어디에 끼어들지)과 `handleResponse()` 의 3줄(① 원래 메서드 실행 ② 상태코드 설정 ③ 결과 그대로 반환).
+3. **[`ApiV1PostController.java`](src/main/java/com/back/domain/post/post/controller/ApiV1PostController.java) `write()`** — **한 글자도 바뀌지 않았다.** 그런데 응답이 201 이 된다. 이것이 AOP.
+
+### 핵심 포인트
+
+- **AOP(관점 지향 프로그래밍)**: "여러 메서드에 공통으로 필요한 일"을 한곳에 모으고, "어디에 적용할지"만 선언한다. 스프링이 대상 메서드를 **대리 객체(프록시)로 감싸서** 앞뒤에 그 일을 끼워 넣는다. (003 의 `self.work1()` 에서 본 그 프록시)
+- **`@Around`**: 대상 메서드의 **실행 전체를 감싼다**. `joinPoint.proceed()` 가 원래 메서드를 실행하는 줄이고, 그 앞뒤에 원하는 일을 넣는다.
+- **포인트컷 3조건** (모두 만족해야 끼어든다):
+
+  | 조건 | 뜻 | 걸러지는 예 |
+  |---|---|---|
+  | `execution(public ...RsData *(..))` | `RsData` 를 돌려주는 메서드 | `getItems()`(List), `getItem()`(DTO) 은 제외 |
+  | `within(@Controller *) \|\| within(@RestController *)` | 컨트롤러 클래스 안 | 서비스·리포지터리 메서드는 제외 |
+  | `@annotation(GetMapping) \|\| ...` | 요청을 받는 액션 메서드 | 컨트롤러 안의 일반 메서드는 제외 |
+
+- **지금 적용되는 메서드**: 글 `write`(201-1 → 201), 글 `deleteItem`(200-1 → 200), 댓글 `deleteItem`(200-1 → 200). 앞으로 만들 수정·댓글 작성도 `RsData` 만 돌려주면 **자동으로** 적용된다.
+- **실패 응답은 여기를 안 거친다**: 404, 400 은 예외로 끝나서 `proceed()` 다음 줄이 실행되지 않는다. 그 상태코드는 `GlobalExceptionHandler` 의 `ResponseEntity` 가 정한다(006, 010). (강의 49강에는 Aspect 를 예외 처리기에까지 넓히는 실험이 있지만, 여기서는 강의 본편대로 두었다)
+- **처음에 물어본 "Aspect 로 예외 관리"와의 차이**: 이 Aspect 는 **성공 응답의 상태코드**를 맞추는 역할이다. 예외는 여전히 `@RestControllerAdvice` 가 맡는다. 둘 다 "컨트롤러 밖에서 공통 처리"라는 점은 같다.
+
+### TDD 과정
+
+**RED** — `t7` 을 `isCreated()` 로 먼저 바꾸고 실행. `Status expected:<201> but was:<200>`
+
+![011 RED](docs/images/011-red.png)
+
+**GREEN** — `ResponseAspect` 추가 후 통과. 컨트롤러 코드는 그대로.
+
+![011 GREEN](docs/images/011-green.png)
+
+`t7` 테스트 출력: 같은 요청인데 이제 `Status = 201`
+
+![011 Status 201](docs/images/011-status-201.png)
+
+### 테스트
+
+| 테스트 | 검증 내용 |
+|---|---|
+| `ApiV1PostControllerTest.t7` (수정) | 글 작성 → **HTTP 201**, `201-1`, 작성된 글 |
+| 기존 삭제 테스트들 (`t5`, `t6`, 댓글 `t6`, `t7`) | Aspect 가 끼어든 뒤에도 200 / 404 그대로 → 다른 기능에 영향 없음 (강의 37강: 테스트가 안전망) |
+
+### 결과 스크린샷
+
+전체 결과 — 23건 실행, 실패 0, 성공률 100%
+
+![011 테스트 요약](docs/images/011-green-summary.png)
