@@ -1,0 +1,8 @@
+# [002 추가] @ActiveProfiles("test") 가 붙은 테스트에서만 적용되는 설정
+# application.yaml 을 기본으로 쓰고, 여기 적은 값만 덮어쓴다
+spring:
+  datasource:
+    url: jdbc:h2:mem:db_test;MODE=MySQL # 메모리 DB → 테스트가 개발용 db_dev 파일을 건드리지 않음
+  jpa:
+    hibernate:
+      ddl-auto: create-drop # 테스트 시작 시 테이블 생성, 끝나면 삭제 → 매번 깨끗한 상태
