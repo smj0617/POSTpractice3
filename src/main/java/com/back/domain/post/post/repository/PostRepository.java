@@ -4,6 +4,7 @@ import com.back.domain.post.post.entity.Post;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional; // [010 추가]
 
 // DB에 직접 접근하는 담당
 // 인터페이스만 만들면 스프링이 구현체를 자동으로 만들어 준다
@@ -14,4 +15,7 @@ public interface PostRepository extends JpaRepository<Post, Long> {
     // findAll + By + OrderBy + Id + Desc
     // → SELECT * FROM post ORDER BY id DESC (번호 큰 글 = 최신 글이 먼저)
     List<Post> findAllByOrderByIdDesc();
+
+    // [010 추가] findFirst + By + OrderBy + Id + Desc → 번호가 가장 큰 글 1개 (없을 수도 있어서 Optional)
+    Optional<Post> findFirstByOrderByIdDesc();
 }

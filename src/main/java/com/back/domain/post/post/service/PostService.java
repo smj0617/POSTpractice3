@@ -41,6 +41,11 @@ public class PostService {
         return postRepository.findById(id); // SELECT * FROM post WHERE id = ?
     }
 
+    // [010 추가] 가장 최근 글 1개 (테스트에서 "방금 작성된 글"을 꺼낼 때 쓴다)
+    public Optional<Post> findLatest() {
+        return postRepository.findFirstByOrderByIdDesc(); // SELECT * FROM post ORDER BY id DESC LIMIT 1
+    }
+
     // [009 추가] 글 삭제
     // 글에 달린 댓글은 Post.comments 의 orphanRemoval 덕분에 함께 삭제된다 (아래 README 009 참고)
     public void delete(Post post) {

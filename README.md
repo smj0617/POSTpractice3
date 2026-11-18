@@ -34,7 +34,7 @@
 | `007` | 댓글 다건조회, 단건조회 | 10강, 54강 | ✅ 완료 |
 | `008` | 댓글 삭제 | 11~12강 | ✅ 완료 |
 | `009` | 글 삭제 (댓글도 함께 삭제) | 16강, 42강 | ✅ 완료 |
-| `010` | 글 작성 + 입력값 검증(400) | 22~24강, 50~52강 | ⏳ |
+| `010` | 글 작성 + 입력값 검증(400) | 22~24강, 50~52강 | ✅ 완료 |
 | `011` | `ResponseAspect`: `RsData` 의 `resultCode` 로 HTTP 상태코드 자동 설정 | 27~28강 | ⏳ |
 | `012` | 글 수정 (입력값 검증 포함) | 31강, 36강 | ⏳ |
 | `013` | 댓글 수정 (입력값 검증 포함) | 32강, 55강 | ⏳ |
@@ -50,7 +50,7 @@
 | GET | `/api/v1/posts/{postId}/comments/{id}` | 댓글 단건조회 | 200, 댓글 | `007` |
 | DELETE | `/api/v1/posts/{postId}/comments/{id}` | 댓글 삭제 | 200, `RsData` | `008` |
 | DELETE | `/api/v1/posts/{id}` | 글 삭제 | 200, `RsData` | `009` |
-| POST | `/api/v1/posts` | 글 작성 | 201, `RsData` | `010` |
+| POST | `/api/v1/posts` | 글 작성 | 201, `RsData` (HTTP 201 은 `011` 부터) | `010` |
 | PUT | `/api/v1/posts/{id}` | 글 수정 | 200, `RsData` | `012` |
 | PUT | `/api/v1/posts/{postId}/comments/{id}` | 댓글 수정 | 200, `RsData` | `013` |
 | POST | `/api/v1/posts/{postId}/comments` | 댓글 작성 | 201, `RsData` | `014` |
@@ -645,3 +645,74 @@ DB를 다시 읽어 보니 1번 댓글이 그대로 있었다: `Expecting actual
 전체 결과 — 20건 실행, 실패 0, 성공률 100%
 
 ![009 테스트 요약](docs/images/009-green-summary.png)
+
+---
+
+## 010 - 글 작성 `POST /api/v1/posts` + 입력값 검증 (강의 22~27강, 33강, 38강, 50~52강)
+
+### 작업 내용
+
+| 파일 | 변경 | 역할 |
+|---|---|---|
+| `build.gradle.kts` | 수정 | `spring-boot-starter-validation` 추가 (`@Valid`, `@NotBlank`, `@Size`) |
+| `ApiV1PostController.java` | 수정 | `PostWriteReqBody`(요청 본문 record + 검증 규칙), `write()` 추가 |
+| `GlobalExceptionHandler.java` | 수정 | 검증 실패(`MethodArgumentNotValidException`), JSON 오류(`HttpMessageNotReadableException`) → 400 |
+| `PostRepository.java`, `PostService.java` | 수정 | `findFirstByOrderByIdDesc()`, `findLatest()`: 가장 최근 글 (테스트에서 사용) |
+| `ApiV1PostControllerTest.java` | 수정 | 작성 성공(`t7`), 빈 제목 400(`t8`), JSON 문법 오류 400(`t9`) |
+
+### 봐야 할 부분 (읽는 순서)
+
+1. **[`ApiV1PostControllerTest.java`](src/test/java/com/back/domain/post/post/controller/ApiV1PostControllerTest.java) `t7`** — 처음으로 **요청 본문**을 보낸다: `.contentType(MediaType.APPLICATION_JSON)` + `.content("""{...}""")`. 응답은 `$.data.id` 처럼 `RsData` 안의 `data` 를 한 단계 더 들어가서 읽는다.
+2. **같은 파일 `t8`, `t9`** — 실패 2가지: "JSON 은 읽혔지만 규칙 위반"(`t8`) vs "JSON 자체를 읽을 수 없음"(`t9`).
+3. **[`ApiV1PostController.java`](src/main/java/com/back/domain/post/post/controller/ApiV1PostController.java) `PostWriteReqBody` + `write()`** — 메서드 안에 검증 코드(`if (title == null ...)`)가 **없다**. 규칙은 어노테이션으로 선언만 하고, 검사는 `@Valid` 가 한다.
+4. **[`GlobalExceptionHandler.java`](src/main/java/com/back/global/globalExceptionHandler/GlobalExceptionHandler.java)** — 새로 추가된 두 `@ExceptionHandler`. 006 의 404 처리와 같은 구조다.
+
+### 핵심 포인트
+
+- **`@RequestBody`**: 요청 본문의 JSON 을 자바 객체(`PostWriteReqBody`)로 바꾼다. 이름이 같은 칸끼리 짝지어 넣는다(`"title"` → `title`).
+- **요청이 메서드에 도착하기까지 3단계**:
+
+  | 단계 | 실패하면 | 처리 |
+  |---|---|---|
+  | ① JSON → `PostWriteReqBody` 변환 (`@RequestBody`) | `HttpMessageNotReadableException` | 400 `요청 본문이 올바르지 않습니다.` (`t9`) |
+  | ② 규칙 검사 (`@Valid` + `@NotBlank`, `@Size`) | `MethodArgumentNotValidException` | 400 `title-NotBlank-...` (`t8`) |
+  | ③ `write()` 실행 | — | 200 `201-1` (`t7`) |
+
+  ①②에서 실패하면 `write()` 는 **아예 실행되지 않는다**. 그래서 메서드 안에는 "규칙을 통과한 입력"만 들어온다.
+- **`@NotBlank` vs `@Size`**: `""` 는 두 규칙을 동시에 어긴다(공백 불가 + 2자 미만). 그래서 `t8` 의 `msg` 가 두 줄이다. 줄을 **정렬**해서 이어 붙이기 때문에 메시지가 항상 같은 순서로 나온다.
+- **검증 메시지가 영어인 이유**: 기본 메시지는 요청의 언어 설정을 따른다. MockMvc 요청은 기본이 영어라 `must not be blank` 로 나온다(강의와 같음). 한국어 브라우저에서 보내면 `공백일 수 없습니다` 처럼 바뀔 수 있다.
+- **`RsData<PostDto>`**: 작성 성공 응답의 `data` 에 방금 만든 글을 담는다. 프론트는 다시 조회하지 않아도 새 글 번호(`data.id`)를 바로 쓸 수 있다.
+- **아직 HTTP 는 200**: `resultCode` 를 `201-1` 로 적어도 HTTP 상태코드는 저절로 201 이 되지 않는다(강의 27강). `t7` 은 지금 `isOk()` 로 검사하고, **011 의 `ResponseAspect`** 에서 이 줄을 `isCreated()` 로 바꾸며 해결한다.
+- **DTO 이름 `ReqBody`**: 화면의 "폼"이 아니라 HTTP 요청 본문을 받는 상자라서 `PostWriteForm` 보다 `PostWriteReqBody` 가 정확하다(강의 24강).
+
+### TDD 과정
+
+**RED** — `t7` ~ `t9` 먼저 작성 (테스트가 쓸 `findLatest()` 만 먼저 추가). `write` 가 없어서 3건 실패.
+
+![010 RED](docs/images/010-red.png)
+
+**GREEN** — validation 의존성, `PostWriteReqBody`, `write()`, 예외 처리기 2개 추가 후 통과.
+
+![010 GREEN](docs/images/010-green.png)
+
+`t7` 테스트 출력: POST 요청 본문 → 응답 `201-1` + `data` 에 4번 글 (HTTP Status 는 아직 200)
+
+![010 작성 성공](docs/images/010-write-ok.png)
+
+`t8` 테스트 출력: 빈 제목 → `MethodArgumentNotValidException` → 400, 규칙 위반 2줄
+
+![010 작성 400](docs/images/010-write-400.png)
+
+### 테스트
+
+| 테스트 | 검증 내용 |
+|---|---|
+| `ApiV1PostControllerTest.t7` | `POST /posts` `{"title":"새 글 제목","content":"새 글 내용"}` → `201-1`, `n번 글이 작성되었습니다.`, `data` 의 모든 필드 / DB 글 4개 |
+| `ApiV1PostControllerTest.t8` | `{"title":"","content":"내용"}` → 400, `400-1`, `title-NotBlank-...` + `title-Size-...` 두 줄 / DB 글 3개 그대로 |
+| `ApiV1PostControllerTest.t9` | 문법이 틀린 JSON → 400, `400-1`, `요청 본문이 올바르지 않습니다.` |
+
+### 결과 스크린샷
+
+전체 결과 — 23건 실행, 실패 0, 성공률 100%
+
+![010 테스트 요약](docs/images/010-green-summary.png)

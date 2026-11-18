@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType; // [010 추가]
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -22,6 +23,7 @@ import static org.hamcrest.Matchers.startsWith;
 import static org.assertj.core.api.Assertions.assertThat;                                 // [009 추가]
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete; // [009 추가]
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;   // [010 추가]
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -172,5 +174,98 @@ public class ApiV1PostControllerTest {
                 .andExpect(jsonPath("$.resultCode").value("404-1"));
 
         assertThat(postService.count()).isEqualTo(3);
+    }
+
+    // ---------- [010 추가] 글 작성 (강의 22~24강 기능, 33강·38강·50~52강 테스트) ----------
+
+    @Test
+    @DisplayName("글 작성 - POST /api/v1/posts 로 JSON 을 보내면 글이 저장되고, RsData(201-1) 에 작성된 글이 담겨 온다")
+    void t7() throws Exception {
+        // ① 요청 보내기: 요청 본문(body)에 JSON 을 담는다
+        ResultActions resultActions = mvc
+                .perform(
+                        post("/api/v1/posts")
+                                .contentType(MediaType.APPLICATION_JSON) // "본문은 JSON 이다" 라고 알린다
+                                .content("""
+                                        {
+                                            "title": "새 글 제목",
+                                            "content": "새 글 내용"
+                                        }
+                                        """)
+                )
+                .andDo(print());
+
+        // 비교 기준: DB에서 가장 최근 글 = 방금 작성된 글 (강의 38강)
+        Post post = postService.findLatest().get();
+
+        // ② 응답 검증
+        resultActions
+                .andExpect(handler().handlerType(ApiV1PostController.class))
+                .andExpect(handler().methodName("write"))
+                .andExpect(status().isOk()) // HTTP 는 아직 200. resultCode 가 201-1 이어도 HTTP 201 이 저절로 되지는 않는다 (강의 27강) → 011 에서 해결
+                .andExpect(jsonPath("$.resultCode").value("201-1"))
+                .andExpect(jsonPath("$.msg").value("%d번 글이 작성되었습니다.".formatted(post.getId())))
+                .andExpect(jsonPath("$.data.id").value(post.getId())) // data 안에 작성된 글(PostDto)
+                .andExpect(jsonPath("$.data.createDate").value(startsWith(post.getCreateDate().toString().substring(0, 19))))
+                .andExpect(jsonPath("$.data.modifyDate").value(startsWith(post.getModifyDate().toString().substring(0, 19))))
+                .andExpect(jsonPath("$.data.title").value("새 글 제목"))
+                .andExpect(jsonPath("$.data.content").value("새 글 내용"));
+
+        // ③ DB 검증: 글이 4개가 됐다
+        assertThat(postService.count()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("글 작성 - 제목이 빈 문자열이면 400, 어떤 칸이 어떤 규칙을 어겼는지 msg 에 담겨 온다")
+    void t8() throws Exception {
+        ResultActions resultActions = mvc
+                .perform(
+                        post("/api/v1/posts")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {
+                                            "title": "",
+                                            "content": "내용"
+                                        }
+                                        """)
+                )
+                .andDo(print());
+
+        // 빈 제목 "" 은 두 규칙을 동시에 어긴다: @NotBlank(공백 불가), @Size(min = 2)
+        // msg 형식: "칸이름-규칙이름-기본메시지", 여러 개면 정렬해서 줄바꿈으로 잇는다 (강의 50강)
+        resultActions
+                .andExpect(handler().methodName("write"))
+                .andExpect(status().isBadRequest()) // 400
+                .andExpect(jsonPath("$.resultCode").value("400-1"))
+                .andExpect(jsonPath("$.msg").value("""
+                        title-NotBlank-must not be blank
+                        title-Size-size must be between 2 and 100
+                        """.stripIndent().trim()))
+                .andExpect(jsonPath("$.data").value(nullValue()));
+
+        assertThat(postService.count()).isEqualTo(3); // 저장되지 않았다
+    }
+
+    @Test
+    @DisplayName("글 작성 - JSON 문법이 틀리면 400, '요청 본문이 올바르지 않습니다.'")
+    void t9() throws Exception {
+        // 따옴표가 빠지고 } 로 닫히지 않은, 읽을 수 없는 JSON
+        String wrongJsonBody = """
+                {
+                    "title": 제목",
+                    content": "내용"
+                """;
+
+        mvc
+                .perform(
+                        post("/api/v1/posts")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(wrongJsonBody)
+                )
+                .andDo(print())
+                .andExpect(handler().methodName("write"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.resultCode").value("400-1"))
+                .andExpect(jsonPath("$.msg").value("요청 본문이 올바르지 않습니다."));
     }
 }

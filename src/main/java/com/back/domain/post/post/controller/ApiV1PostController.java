@@ -4,11 +4,16 @@ import com.back.domain.post.post.dto.PostDto;
 import com.back.domain.post.post.entity.Post;               // [005 추가]
 import com.back.domain.post.post.service.PostService;
 import com.back.global.rsData.RsData;                         // [009 추가]
+import jakarta.validation.Valid;                              // [010 추가]
+import jakarta.validation.constraints.NotBlank;               // [010 추가]
+import jakarta.validation.constraints.Size;                   // [010 추가]
 import lombok.RequiredArgsConstructor;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping; // [009 추가]
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable; // [005 추가]
+import org.springframework.web.bind.annotation.PostMapping;   // [010 추가]
+import org.springframework.web.bind.annotation.RequestBody;   // [010 추가]
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -61,5 +66,40 @@ public class ApiV1PostController {
         postService.delete(post);
 
         return new RsData<>("200-1", "%d번 글이 삭제되었습니다.".formatted(id));
+    }
+
+    // [010 추가] 글 작성 요청 본문 (강의 24강: Form 보다 ReqBody 가 더 정확한 이름)
+    // JSON {"title": "...", "content": "..."} 이 이 record 로 바뀐다 (Jackson 이 같은 이름의 칸에 넣어 준다)
+    // 각 칸에 붙은 어노테이션이 입력값 규칙이다 (README 입력값 규칙)
+    //   @NotBlank : null, "", "   " (공백만) 모두 거부
+    //   @Size     : 글자 수 범위
+    public record PostWriteReqBody(
+            @NotBlank
+            @Size(min = 2, max = 100)
+            String title,
+
+            @NotBlank
+            @Size(min = 2, max = 5000)
+            String content
+    ) {
+    }
+
+    // [010 추가] 글 작성: POST /api/v1/posts (강의 22강)
+    // @RequestBody : 요청 본문(JSON)을 PostWriteReqBody 로 바꿔서 받는다
+    //                JSON 문법이 틀리면 바꾸지 못해서 HttpMessageNotReadableException → 400 (GlobalExceptionHandler)
+    // @Valid       : 바꾼 뒤 위의 규칙을 검사한다
+    //                어기면 이 메서드는 실행되지 않고 MethodArgumentNotValidException → 400 (GlobalExceptionHandler)
+    // 그래서 메서드 안에는 "규칙을 통과한 정상 입력"만 들어온다
+    // 응답: RsData 의 data 에 작성된 글을 담아서, 프론트가 새 글 번호 등을 바로 쓸 수 있게 한다
+    @PostMapping
+    @Transactional
+    public RsData<PostDto> write(@RequestBody @Valid PostWriteReqBody reqBody) {
+        Post post = postService.write(reqBody.title(), reqBody.content());
+
+        return new RsData<>(
+                "201-1",
+                "%d번 글이 작성되었습니다.".formatted(post.getId()),
+                new PostDto(post)
+        );
     }
 }
