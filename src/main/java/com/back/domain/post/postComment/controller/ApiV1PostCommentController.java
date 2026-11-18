@@ -5,11 +5,16 @@ import com.back.domain.post.post.service.PostService;
 import com.back.domain.post.postComment.dto.PostCommentDto;
 import com.back.domain.post.postComment.entity.PostComment;
 import com.back.global.rsData.RsData;                         // [008 추가]
+import jakarta.validation.Valid;                              // [013 추가]
+import jakarta.validation.constraints.NotBlank;               // [013 추가]
+import jakarta.validation.constraints.Size;                   // [013 추가]
 import lombok.RequiredArgsConstructor;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping; // [008 추가]
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;    // [013 추가]
+import org.springframework.web.bind.annotation.RequestBody;   // [013 추가]
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -63,5 +68,30 @@ public class ApiV1PostCommentController {
         post.deleteComment(postComment); // 목록에서 빼기만 한다 → DELETE SQL 은 JPA 가 만든다
 
         return new RsData<>("200-1", "%d번 댓글이 삭제되었습니다.".formatted(id));
+    }
+
+    // [013 추가] 댓글 수정 요청 본문 (강의 32강): 내용만 받는다 (README 입력값 규칙: 2 ~ 1000자)
+    public record PostCommentModifyReqBody(
+            @NotBlank
+            @Size(min = 2, max = 1000)
+            String content
+    ) {
+    }
+
+    // [013 추가] 댓글 수정: PUT /api/v1/posts/{postId}/comments/{id} (강의 32강)
+    // 012 글 수정과 같은 모양 + 007 처럼 "그 글의 댓글"인지 확인하는 단계(findCommentById)가 하나 더
+    @PutMapping("/{id}")
+    @Transactional
+    public RsData<Void> modify(
+            @PathVariable long postId,
+            @PathVariable long id,
+            @RequestBody @Valid PostCommentModifyReqBody reqBody
+    ) {
+        Post post = postService.findById(postId).get();           // 글이 없으면 404
+        PostComment postComment = post.findCommentById(id).get(); // 그 글의 댓글이 아니면 404
+
+        postService.modifyComment(postComment, reqBody.content());
+
+        return new RsData<>("200-1", "%d번 댓글이 수정되었습니다.".formatted(id));
     }
 }

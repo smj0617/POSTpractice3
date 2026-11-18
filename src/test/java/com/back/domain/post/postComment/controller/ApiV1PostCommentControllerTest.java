@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType; // [013 추가]
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -22,6 +23,7 @@ import static org.hamcrest.Matchers.startsWith;
 import static org.assertj.core.api.Assertions.assertThat; // [008 추가]
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete; // [008 추가]
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put; // [013 추가]
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -183,5 +185,91 @@ public class ApiV1PostCommentControllerTest {
         assertThat(post2.getComments())
                 .extracting(PostComment::getId)
                 .containsExactly(4L, 5L); // 아무것도 지워지지 않았다
+    }
+
+    // ---------- [013 추가] 댓글 수정 (강의 32강 기능, 55강 테스트) ----------
+
+    @Test
+    @DisplayName("댓글 수정 - PUT /api/v1/posts/1/comments/1 로 새 내용을 보내면 200, RsData 응답, DB의 1번 댓글 내용과 수정일이 바뀐다")
+    void t8() throws Exception {
+        // 비교 기준: 수정 전 1번 댓글의 작성일·수정일
+        PostComment before = postService.findById(1).get().findCommentById(1).get();
+        var createDateBefore = before.getCreateDate();
+        var modifyDateBefore = before.getModifyDate();
+
+        // ① 요청 보내기
+        ResultActions resultActions = mvc
+                .perform(
+                        put("/api/v1/posts/1/comments/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {
+                                            "content": "댓글 수정"
+                                        }
+                                        """)
+                )
+                .andDo(print());
+
+        // ② 응답 검증
+        resultActions
+                .andExpect(handler().handlerType(ApiV1PostCommentController.class))
+                .andExpect(handler().methodName("modify"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultCode").value("200-1"))
+                .andExpect(jsonPath("$.msg").value("1번 댓글이 수정되었습니다."))
+                .andExpect(jsonPath("$.data").value(nullValue()));
+
+        // ③ DB 검증
+        em.flush();
+        em.clear();
+
+        PostComment after = postService.findById(1).get().findCommentById(1).get();
+        assertThat(after.getContent()).isEqualTo("댓글 수정");
+        assertThat(after.getCreateDate()).isEqualTo(createDateBefore);
+        assertThat(after.getModifyDate()).isAfter(modifyDateBefore);
+    }
+
+    @Test
+    @DisplayName("댓글 수정 - 다른 글의 댓글(2번 글의 4번 댓글)을 1번 글 주소로 수정 요청하면 404, 4번 댓글은 그대로")
+    void t9() throws Exception {
+        mvc
+                .perform(
+                        put("/api/v1/posts/1/comments/4")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {
+                                            "content": "댓글 수정"
+                                        }
+                                        """)
+                )
+                .andDo(print())
+                .andExpect(handler().methodName("modify"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.resultCode").value("404-1"));
+
+        em.flush();
+        em.clear();
+
+        assertThat(postService.findById(2).get().findCommentById(4).get().getContent()).isEqualTo("댓글 2-1");
+    }
+
+    @Test
+    @DisplayName("댓글 수정 - 내용이 공백뿐이면 400")
+    void t10() throws Exception {
+        mvc
+                .perform(
+                        put("/api/v1/posts/1/comments/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {
+                                            "content": "   "
+                                        }
+                                        """)
+                )
+                .andDo(print())
+                .andExpect(handler().methodName("modify"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.resultCode").value("400-1"))
+                .andExpect(jsonPath("$.msg").value("content-NotBlank-must not be blank")); // "   " 은 3글자라 @Size 는 통과, @NotBlank 만 걸린다
     }
 }

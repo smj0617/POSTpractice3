@@ -32,4 +32,9 @@ public class PostComment extends BaseEntity {
         this.post = post;
         this.content = content;
     }
+
+    // [013 추가] 댓글 수정: 내용만 바꾼다 → 트랜잭션이 끝날 때 더티체킹으로 UPDATE (012 글 수정과 같은 원리)
+    public void modify(String content) {
+        this.content = content;
+    }
 }

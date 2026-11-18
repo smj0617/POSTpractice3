@@ -37,7 +37,7 @@
 | `010` | 글 작성 + 입력값 검증(400) | 22~24강, 50~52강 | ✅ 완료 |
 | `011` | `ResponseAspect`: `RsData` 의 `resultCode` 로 HTTP 상태코드 자동 설정 | 27~28강 | ✅ 완료 |
 | `012` | 글 수정 (입력값 검증 포함) | 31강, 36강 | ✅ 완료 |
-| `013` | 댓글 수정 (입력값 검증 포함) | 32강, 55강 | ⏳ |
+| `013` | 댓글 수정 (입력값 검증 포함) | 32강, 55강 | ✅ 완료 |
 | `014` | 댓글 작성 + 최종 결과 정리 | 56강 | ⏳ |
 
 ## 만들 API
@@ -856,3 +856,57 @@ DB를 다시 읽어 보니 1번 댓글이 그대로 있었다: `Expecting actual
 ![012 테스트 요약](docs/images/012-green-summary.png)
 
 > PUT 요청도 브라우저 주소창으로 보낼 수 없어서, 위의 테스트 출력(응답 본문 + UPDATE SQL) 캡처로 확인했다.
+
+---
+
+## 013 - 댓글 수정 `PUT /api/v1/posts/{postId}/comments/{id}` (강의 32강, 55강)
+
+### 작업 내용
+
+| 파일 | 변경 | 역할 |
+|---|---|---|
+| `ApiV1PostCommentController.java` | 수정 | `PostCommentModifyReqBody`(내용 2 ~ 1000자), `modify()` 추가: `@PutMapping("/{id}")` |
+| `PostService.java` | 수정 | `modifyComment(postComment, content)` |
+| `PostComment.java` | 수정 | `modify(content)`: 내용만 바꾼다 |
+| `ApiV1PostCommentControllerTest.java` | 수정 | 수정 성공(`t8`), 다른 글의 댓글 404(`t9`), 공백 내용 400(`t10`) |
+
+### 봐야 할 부분 (읽는 순서)
+
+1. **[`ApiV1PostCommentControllerTest.java`](src/test/java/com/back/domain/post/postComment/controller/ApiV1PostCommentControllerTest.java) `t8` ~ `t10`** — 012 의 글 수정 테스트와 나란히 놓고 보면 구조가 같다. 다른 점은 `t9` 의 "다른 글의 댓글"(007, 008 에 이어 세 번째).
+2. **[`ApiV1PostCommentController.java`](src/main/java/com/back/domain/post/postComment/controller/ApiV1PostCommentController.java) `modify()`** — 012 의 글 `modify()` + 007 의 `post.findCommentById(id).get()`.
+3. **[`PostComment.java`](src/main/java/com/back/domain/post/postComment/entity/PostComment.java) `modify()`** — 대입 한 줄. `PostComment` 도 `BaseEntity` 를 상속했으니 수정일이 자동으로 바뀐다.
+
+### 핵심 포인트
+
+- **새로운 개념은 없다**: 012(PUT + 더티체킹) + 007(그 글의 댓글만 찾기) + 010(`@Valid` 400) + 006(`.get()` 404) + 011(`ResponseAspect` 200)의 조합이다. 지금까지 만든 공통 장치 덕분에 컨트롤러 메서드는 **찾기 → 바꾸기 → 결과 알리기** 세 단계만 남았다.
+- **`"   "` 은 왜 `NotBlank` 만 걸리나**: 공백 3개는 길이가 3이라 `@Size(min = 2)` 는 통과하고, "공백만 있음"이라 `@NotBlank` 만 어긴다. (010 의 `""` 는 길이 0이라 두 규칙을 모두 어겼다)
+- **댓글 UPDATE 에도 `post_id` 가 들어간다**: 캡처의 `update post_comment set content=?, create_date=?, modify_date=?, post_id=? where id=?` — 012 에서 본 것처럼 Hibernate 는 기본적으로 모든 칸을 SET 한다. 값은 그대로라 소속 글이 바뀌지는 않는다.
+- **댓글 서비스가 따로 없는 이유**: 댓글은 언제나 글을 거쳐 찾고(`post.findCommentById`) 다루므로, 지금 규모에서는 `PostService` 하나로 충분하다(007 과 같은 판단).
+
+### TDD 과정
+
+**RED** — `t8` ~ `t10` 먼저 작성. `modify` 가 없어서 3건 실패.
+
+![013 RED](docs/images/013-red.png)
+
+**GREEN** — `PostComment.modify()`, `PostService.modifyComment()`, `PostCommentModifyReqBody`, `modify()` 구현 후 통과.
+
+![013 GREEN](docs/images/013-green.png)
+
+`t8` 테스트 출력: 응답 `200-1` 다음에 `update post_comment set ... where id=?` (노란색)
+
+![013 UPDATE SQL](docs/images/013-update-sql.png)
+
+### 테스트
+
+| 테스트 | 검증 내용 |
+|---|---|
+| `ApiV1PostCommentControllerTest.t8` | `PUT /posts/1/comments/1` `{"content":"댓글 수정"}` → 200, `200-1`, `1번 댓글이 수정되었습니다.` / DB: 내용 변경, 작성일 그대로, 수정일 갱신 |
+| `ApiV1PostCommentControllerTest.t9` | `PUT /posts/1/comments/4` → 404 / DB: 4번 댓글 `댓글 2-1` 그대로 |
+| `ApiV1PostCommentControllerTest.t10` | `{"content":"   "}` → 400, `content-NotBlank-must not be blank` |
+
+### 결과 스크린샷
+
+전체 결과 — 29건 실행, 실패 0, 성공률 100%
+
+![013 테스트 요약](docs/images/013-green-summary.png)

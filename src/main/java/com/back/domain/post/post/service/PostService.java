@@ -2,6 +2,7 @@ package com.back.domain.post.post.service;
 
 import com.back.domain.post.post.entity.Post;
 import com.back.domain.post.post.repository.PostRepository;
+import com.back.domain.post.postComment.entity.PostComment; // [013 추가]
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -50,6 +51,12 @@ public class PostService {
     // 리포지터리를 부르지 않는다. 엔티티의 값만 바꾸면 트랜잭션이 끝날 때 UPDATE 된다
     public void modify(Post post, String title, String content) {
         post.modify(title, content);
+    }
+
+    // [013 추가] 댓글 수정 (강의 32강)
+    // 댓글 전용 서비스 없이, 댓글은 글 서비스에서 함께 다룬다 (007 참고)
+    public void modifyComment(PostComment postComment, String content) {
+        postComment.modify(content);
     }
 
     // [009 추가] 글 삭제
